@@ -91,6 +91,54 @@ rclone --version
 
 ---
 
+### 7. Configure rclone Remote (Google Drive)
+
+```bash
+rclone config
+```
+
+Follow the interactive prompts to add a new remote. Use `n` for a new remote, name it (e.g. `gg1`), select `drive` as the storage type, and authenticate via browser or service account.
+
+To verify the remote works:
+
+```bash
+rclone ls <remote_name>:<path>
+```
+
+---
+
+## Scripts
+
+### `scripts/watch_and_upload.sh`
+
+Watches for a model checkpoint file to appear in a training run directory, uploads the
+entire directory to a remote (Google Drive via rclone), verifies the upload, and then
+automatically destroys the vast.ai instance to stop billing.
+
+**Setup:**
+
+1. Edit the configuration variables at the top of the script:
+   - `WATCH_DIR` — local path to the training run directory
+   - `TARGET_FILE` — checkpoint filename to wait for (e.g. `model_1600.pt`)
+   - `REMOTE_DEST` — rclone remote destination (e.g. `gg1:dissert_ntu/models/my_run`)
+   - `VAST_API_KEY` — your vast.ai API key (from [vast.ai console](https://cloud.vast.ai/account/))
+   - `VAST_INSTANCE_ID` — the instance ID shown in the vast.ai dashboard
+
+2. Run in the background so it persists after logout:
+
+```bash
+chmod +x scripts/watch_and_upload.sh
+nohup ./scripts/watch_and_upload.sh > watch_and_upload.log 2>&1 &
+```
+
+3. Monitor progress:
+
+```bash
+tail -f watch_and_upload.log
+```
+
+---
+
 ## Summary Checklist
 
 - [ ] `touch ~/.no_auto_tmux`
@@ -99,3 +147,5 @@ rclone --version
 - [ ] `conda env create -f env.yaml` (env name: `py10_g0_train`)
 - [ ] `git config --global user.email` and `user.name`
 - [ ] Install rclone via install script
+- [ ] Configure rclone remote (`rclone config`)
+- [ ] Configure and run `scripts/watch_and_upload.sh` for auto-upload + instance teardown
