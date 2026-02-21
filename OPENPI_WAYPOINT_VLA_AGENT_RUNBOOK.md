@@ -4,6 +4,8 @@
 >
 > **最后验证**: 2026-02-21，硬件: 2× RTX PRO 6000 Blackwell (97.9 GB)，Ubuntu 24.04，CUDA 12.8
 >
+> **覆盖范围**: Action Expert (AE) 训练 + VLM waypoint 训练
+>
 > **实测总耗时（从 clone 到 step=0）: ~15 分钟**（uv sync、数据下载、模型下载三路并行）
 
 ---
@@ -29,11 +31,19 @@
 7. [配置 rclone Google Drive](#7-配置-rclone-google-drive)
 8. [下载训练数据](#8-下载训练数据)
 9. [生成 dataset_statistics（必须手动计算）](#9-生成-dataset_statistics必须手动计算)
+   - 9.1–9.2: AE 用 stats（从原始 RLDS）
+   - 9.3: **VLM 用 stats**（从 waypoint-filtered RLDS）
 10. [下载并转换 pi0.5 base 模型](#10-下载并转换-pi05-base-模型)
 11. [配置 wandb](#11-配置-wandb)
 12. [启动训练](#12-启动训练)
+    - 12.1–12.2: AE 训练
+    - 12.4–12.5: **VLM 训练**
 13. [验证训练正常](#13-验证训练正常)
+    - 13.1: AE 验证
+    - 13.2: **VLM 验证**
 14. [已知问题与修复方案](#14-已知问题与修复方案)
+    - 问题 1–6: AE / 通用
+    - 问题 7–10: **VLM 专属**
 15. [关键路径速查](#15-关键路径速查)
 
 ---
@@ -58,9 +68,8 @@
 □ cp -r ./src/openpi/models_pytorch/transformers_replace/* .venv/lib/python3.11/site-packages/transformers/
 □ 等数据下载完成 → 手动生成 dataset_statistics.json（见第 9 节，必须做！约 50s）
 □ 等 gsutil 完成 → 转换为 PyTorch: .venv/bin/python examples/convert_jax_model_to_pytorch.py ...  (~2 min)
-□ 检查所有路径（见第 12.1 节）
-□ 创建 tmux session，逐条发送命令，启动训练
-□ 检查 step=0 loss 出现
+□ 【AE 训练】检查所有路径（见第 12.1 节） → 创建 tmux session → 启动训练 → 检查 step=0 loss
+□ 【VLM 训练】生成 VLM 专用 norm stats（见第 9.3 节） → 检查路径（第 12.4 节） → 启动训练（第 12.5 节） → 检查 loss
 ```
 
 ---
@@ -379,6 +388,60 @@ print('proprio q99 dims:', len(d[k]['proprio']['q99'])) # 必须是 8
 "
 ```
 
+### 9.3 生成 VLM 专用归一化统计量
+
+> **VLM 训练使用的 stats 与 AE 不同。** VLM 从 waypoint-filtered RLDS 计算统计量，保存到独立路径。
+
+```bash
+cd /workspace/openpi
+.venv/bin/python scripts/compute_wp_norm_stats.py \
+    --rlds_dir /workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0 \
+    --robot_type libero \
+    --output_dir /workspace/data/libero/libero_object_wp_001/norm_stats
+```
+
+> 脚本约需 **30–40 秒**，处理 454 episodes, 8863 步。
+
+验证：
+```bash
+python3 -c "
+import json
+d = json.load(open('/workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json'))
+print('action q99 dims:', len(d['action']['q99']))   # 必须是 7
+print('proprio q99 dims:', len(d['proprio']['q99'])) # 必须是 8
+print('num_transitions:', d['num_transitions'])       # 8863
+"
+```
+
+> **如果 `scripts/compute_wp_norm_stats.py` 不存在**，可以用 inline 方式生成：
+> ```bash
+> cd /workspace/openpi
+> mkdir -p /workspace/data/libero/libero_object_wp_001/norm_stats
+> .venv/bin/python - << 'PYEOF'
+> import os; os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+> import tensorflow as tf; tf.config.set_visible_devices([], 'GPU')
+> import tensorflow_datasets as tfds
+> import numpy as np, json
+> b = tfds.builder_from_directory(
+>     '/workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0')
+> ds = b.as_dataset(split='train')
+> all_a, all_p = [], []
+> for ep in ds:
+>     for s in ep['steps']:
+>         all_a.append(s['action'].numpy().astype('float32'))
+>         all_p.append(s['observation']['state'].numpy().astype('float32').flatten())
+> all_a, all_p = np.stack(all_a), np.stack(all_p)
+> def st(arr):
+>     return {'mean':arr.mean(0).tolist(),'std':arr.std(0).tolist(),
+>             'q01':np.percentile(arr,1,0).tolist(),'q99':np.percentile(arr,99,0).tolist(),
+>             'min':arr.min(0).tolist(),'max':arr.max(0).tolist()}
+> out = {'action':st(all_a),'proprio':st(all_p),'num_transitions':len(all_a),'num_trajectories':454}
+> path = '/workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json'
+> with open(path,'w') as f: json.dump(out,f,indent=2)
+> print(f'Saved to {path}, {len(all_a)} steps')
+> PYEOF
+> ```
+
 ---
 
 ## 10. 下载并转换 pi0.5 base 模型
@@ -512,9 +575,57 @@ mkdir -p /workspace/openpi/logs
 tmux send-keys -t waypoint_ae ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=2 scripts/train_waypoint.py --mode ae --config configs/waypoint_ae_libero.yaml 2>&1 | tee logs/waypoint_ae_libero.log" Enter
 ```
 
+### 12.4 确认 VLM 训练路径
+
+```bash
+ls /workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/dataset_info.json && echo "✓ VLM RLDS"
+ls /workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json && echo "✓ VLM stats"
+ls /workspace/models/pi05_base_pytorch/model.safetensors && echo "✓ model"
+```
+
+### 12.5 启动 VLM 训练
+
+> **VLM 与 AE 训练的关键区别**:
+>
+> | | AE | VLM |
+> |---|---|---|
+> | 模型 | PaliGemma + ActionExpert (3.6B) | PaliGemma only (2.9B) |
+> | Loss | MSE (flow matching) | CE (autoregressive token) |
+> | batch_size (per GPU) | 144 | **12**（VLM 序列更长, 全量 finetune 2.9B 需更多内存） |
+> | GPU 内存 | ~50-60 GB | **~91-93 GB**（必须设 `expandable_segments`） |
+> | Gradient Checkpointing | 手动逐层 checkpoint (gemma_pytorch.py) | HuggingFace API 自动 checkpoint |
+> | 数据启动 | ~10s（early-yield） | ~8s（同样 early-yield） |
+>
+> **必须**使用 `.venv/bin/torchrun`（系统 torchrun 使用错误的 Python 解释器）。
+> **必须**设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`（否则 CUDA 内存碎片化导致 OOM）。
+
+```bash
+# 创建新 session（如果已有同名 session，先杀掉）
+tmux kill-session -t waypoint_vlm 2>/dev/null; sleep 1
+tmux new-session -d -s waypoint_vlm -x 220 -y 50
+
+# 逐条发送命令
+tmux send-keys -t waypoint_vlm "cd /workspace/openpi" Enter
+sleep 2
+tmux send-keys -t waypoint_vlm "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" Enter
+sleep 2
+tmux send-keys -t waypoint_vlm "export WANDB_API_KEY=<your_key>" Enter
+sleep 2
+
+# 创建日志目录
+mkdir -p /workspace/openpi/logs
+
+# 启动 VLM 训练
+tmux send-keys -t waypoint_vlm ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=2 scripts/train_waypoint.py --mode vlm --config configs/waypoint_vlm_libero.yaml 2>&1 | tee logs/waypoint_vlm_libero.log" Enter
+```
+
+> **断点续训**: 追加 `--resume` 参数即可从最新 checkpoint 恢复。
+
 ---
 
 ## 13. 验证训练正常
+
+### 13.1 验证 AE 训练
 
 等待 30 秒后开始检查：
 
@@ -536,6 +647,40 @@ sleep 30 && tail -20 /workspace/openpi/logs/waypoint_ae_libero.log
 初始 loss 应在 0.7–1.0 范围，随后快速下降到 0.2–0.3。
 
 如果 30 秒后日志还在 step=0，说明 RLDS 数据管道在初始化，继续等待（最多 90 秒）。
+
+### 13.2 验证 VLM 训练
+
+```bash
+sleep 30 && tail -20 /workspace/openpi/logs/waypoint_vlm_libero.log
+```
+
+按顺序应出现以下关键行：
+
+| 顺序 | 关键日志 | 含义 |
+|-----|---------|------|
+| 1 | `WaypointVLMDataset: dir=...1.0.0, M=7, stride=4, robot=libero` | 数据集创建成功 |
+| 2 | `PaliGemma weights loaded: 603 params, 1 missing, 0 unexpected` | 权重加载成功（1 missing 正常） |
+| 3 | `Model: 2923.3M total, 2923.3M trainable` | 模型初始化成功 |
+| 4 | `wandb: 🚀 View run at https://...` | wandb 连接成功 |
+| 5 | `Constructing tf.data.Dataset waypoint_filtered_rlds` | RLDS 数据读取 |
+| 6 | `[VLM] step=0/30000 loss=11.xxx` | **第一步 loss，训练开始** |
+
+**VLM 关键指标**:
+- 初始 CE loss 应在 **11–12** 范围（正常，因为 vocab size 很大）
+- 前 50 步快速下降到 **6–7**，500 步后到 **4–5**
+- 速度约 **3.1–3.3 s/step**（DDP 2 卡，batch_size=12/GPU）
+- GPU 内存约 **91–93 GB** per GPU（正常，非常接近上限）
+
+```bash
+# 检查 GPU 使用
+nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv
+# 期望: 两卡各 ~91000-93000 MiB / 97887 MiB
+```
+
+> **如果 VLM 启动后几秒就 OOM**，检查：
+> 1. `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` 是否设置
+> 2. 是否使用了 `.venv/bin/torchrun`（不是系统 torchrun）
+> 3. batch_size 是否为 12（config 文件中确认）
 
 ---
 
@@ -604,12 +749,58 @@ ValueError: API key must be 40 characters long, yours was 86
 
 ---
 
-### 问题 6：训练速度 ~14s/step（正常，无需担心）
+### 问题 6：训练速度 ~14s/step（AE，正常无需担心）
 
 当前硬件（2× RTX PRO 6000 Blackwell），batch_size=144，全量 finetune 3.6B 参数时：
 - 前几步较慢（RLDS 数据 prefetch 未 warm up）
 - 稳定后约 13–14 s/step
 - 预计总训练时间（10000 steps）约 **40–45 小时**
+
+---
+
+### 问题 7：VLM 训练 OOM — batch_size=16 DDP 报 CUDA out of memory
+
+```
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 15.68 GiB.
+```
+
+**原因**: VLM 全量 finetune PaliGemma 2B 时，模型权重 + 优化器状态 + 激活 ≈ 91 GB/GPU。DDP 增加梯度同步缓冲和跨 rank CUDA context，batch_size=16 超出单卡 ~95 GB 的容量。
+
+**修复**: 将 batch_size 设为 **12**（`configs/waypoint_vlm_libero.yaml`），DDP 2 卡有效 batch=24。同时必须设置环境变量 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
+
+---
+
+### 问题 8：VLM 使用系统 torchrun 启动报 ModuleNotFoundError
+
+```
+ModuleNotFoundError: No module named 'safetensors'
+```
+
+**原因**: 系统 `torchrun`（`/venv/main/bin/torchrun`）使用系统 Python (`python3.12`)，而项目依赖安装在 `.venv` (python3.11) 中。
+
+**修复**: 始终使用 `.venv/bin/torchrun` 启动 VLM DDP 训练。AE 训练同理。
+
+---
+
+### 问题 9：VLM 启动极慢（>5 分钟才出 step=0）
+
+**原因**: `vlm_dataset.py` 的 shuffle buffer 必须完全填满才开始 yield 第一个 batch。5000 条 buffer 需要遍历 RLDS 约 5 轮。
+
+**修复**: `vlm_dataset.py` 的 `__iter__` 方法应使用 early-yield 策略（buffer 有 32 条即开始 yield），与 `ae_dataset.py` 一致。此修复已合入 `pytorch_lora_blackwell` 分支。若遇到此问题，检查 `vlm_dataset.py` 第 190 行附近的 `__iter__` 是否有 `min(32, self.shuffle_buffer_size)` 逻辑。
+
+---
+
+### 问题 10：VLM Gradient Checkpointing 无效 — batch_size=4 就 OOM
+
+**原因**: `vlm_model.py` 中 `gradient_checkpointing_enable()` 仅手动设置 `self.paligemma.language_model.gradient_checkpointing = True`，这只会禁用 KV cache，**不会**减少激活内存。HuggingFace 的 `GemmaDecoderLayer` 继承自 `GradientCheckpointingLayer`，需要通过 `model.gradient_checkpointing_enable()` API 激活才能真正在每层 `__call__` 中使用 checkpoint。
+
+**修复**: `vlm_model.py` 的 `gradient_checkpointing_enable()` 方法应调用：
+```python
+self.paligemma.gradient_checkpointing_enable(
+    gradient_checkpointing_kwargs={"use_reentrant": False}
+)
+```
+此修复已合入 `pytorch_lora_blackwell` 分支。修复后 batch_size=16 单卡可用，batch_size=12 DDP 可用。
 
 ---
 
@@ -625,10 +816,13 @@ ValueError: API key must be 40 characters long, yours was 86
 | Pi0.5 JAX 原始 checkpoint | `/workspace/models/pi05_base_jax/pi05_base/` |
 | LIBERO RLDS 原始数据 | `/workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0/` |
 | Waypoint indices | `/workspace/data/libero/libero_object_wp_001/waypoint_indices.json` |
-| Waypoint filtered RLDS | `/workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |
+| Waypoint filtered RLDS（VLM 用） | `/workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |
 | **Dataset statistics（AE 用）** | `/workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json` |
-| 训练日志 | `/workspace/openpi/logs/waypoint_ae_libero.log` |
-| Checkpoints | `/workspace/openpi/checkpoints/waypoint_ae_libero/` |
+| **Dataset statistics（VLM 用）** | `/workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json` |
+| AE 训练日志 | `/workspace/openpi/logs/waypoint_ae_libero.log` |
+| VLM 训练日志 | `/workspace/openpi/logs/waypoint_vlm_libero.log` |
+| AE Checkpoints | `/workspace/openpi/checkpoints/waypoint_ae_libero/` |
+| VLM Checkpoints | `/workspace/openpi/checkpoints/waypoint_vlm_libero/` |
 | Google Drive 数据源 | `gg1:dissert_ntu/libero/` |
 | Google Drive 模型存档 | `gg1:dissert_ntu/models/` |
 
@@ -640,13 +834,18 @@ ValueError: API key must be 40 characters long, yours was 86
 # 实时 AE 训练进度
 tail -f /workspace/openpi/logs/waypoint_ae_libero.log | grep "\[AE\]"
 
+# 实时 VLM 训练进度
+tail -f /workspace/openpi/logs/waypoint_vlm_libero.log | grep "\[VLM\]"
+
 # GPU 状态
 watch -n 5 nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader
 
 # 检查 checkpoint 是否保存
 ls -la /workspace/openpi/checkpoints/waypoint_ae_libero/
+ls -la /workspace/openpi/checkpoints/waypoint_vlm_libero/
 
 # 查看 tmux session
-tmux attach -t waypoint_ae
+tmux attach -t waypoint_ae   # AE 训练
+tmux attach -t waypoint_vlm  # VLM 训练
 # 退出不杀进程: Ctrl+B, D
 ```
