@@ -3,6 +3,8 @@
 > **目标读者**: AI Agent。本文档记录了在全新 vast.ai 服务器上从零到训练启动的完整操作流程，包含所有实际踩坑细节和修复方法。与 `OPENPI_WAYPOINT_VLA_SETUP.md`（设计规范版）结合使用。
 >
 > **最后验证**: 2026-02-21，硬件: 2× RTX PRO 6000 Blackwell (97.9 GB)，Ubuntu 24.04，CUDA 12.8
+>
+> **实测总耗时（从 clone 到 step=0）: ~15 分钟**（uv sync、数据下载、模型下载三路并行）
 
 ---
 
@@ -41,20 +43,23 @@
 ```
 □ touch ~/.no_auto_tmux  （重连后生效）
 □ git config --global user.email/name
+□ sudo apt-get install -y ffmpeg pkg-config build-essential
 □ cd /workspace && git clone openpi (pytorch_lora_blackwell branch)
-□ 修复 pyproject.toml av 版本冲突 → override av>=13.1.0,<14.0.0
-□ cd /workspace/openpi && GIT_LFS_SKIP_SMUDGE=1 uv sync  (10-20 min, 后台运行)
-□ uv pip install tensorflow==2.15.0 tensorflow-datasets==4.9.3
+□ git submodule update --init --recursive
+□ 检查 pyproject.toml 是否已含 av>=13.1.0,<14.0.0（通常已有，无需修改）
+□ 【并行启动以下三路，不要等待】
+  □ cd /workspace/openpi && GIT_LFS_SKIP_SMUDGE=1 uv sync > /tmp/uv_sync.log 2>&1 &          (3-10 min)
+  □ rclone copy gg1:dissert_ntu/libero/libero_object_no_noops/ ... -P --transfers=8 &          (~1 min)
+  □ rclone copy gg1:dissert_ntu/libero/libero_object_wp_001/ ... -P --transfers=4 &            (~1 min)
+  □ gsutil -m cp -r gs://openpi-assets/checkpoints/pi05_base /workspace/models/pi05_base_jax/ & (~2 min)
+□ 配置 rclone gg1（若还未配置，在下载前完成）
+□ 配置 wandb → 写入 ~/.netrc
+□ 等 uv sync 完成 → uv pip install tensorflow==2.15.0 tensorflow-datasets==4.9.3
 □ cp -r ./src/openpi/models_pytorch/transformers_replace/* .venv/lib/python3.11/site-packages/transformers/
-□ rclone config → 添加 gg1 (Google Drive, OAuth token)
-□ mkdir -p /workspace/data/libero/{libero_object_no_noops,libero_object_wp_001}
-□ rclone copy gg1:dissert_ntu/libero/libero_object_no_noops/ /workspace/data/libero/libero_object_no_noops/ -P --transfers=8 &
-□ rclone copy gg1:dissert_ntu/libero/libero_object_wp_001/ /workspace/data/libero/libero_object_wp_001/ -P --transfers=4 &
-□ 手动生成 dataset_statistics.json（见第 9 节，必须做！）
-□ 下载 JAX checkpoint: gsutil -m cp -r gs://openpi-assets/checkpoints/pi05_base /workspace/models/pi05_base_jax/ &
-□ 转换为 PyTorch: uv run examples/convert_jax_model_to_pytorch.py ...
-□ 配置 wandb (WANDB_API_KEY 环境变量)
-□ 创建 tmux session，启动训练
+□ 等数据下载完成 → 手动生成 dataset_statistics.json（见第 9 节，必须做！约 50s）
+□ 等 gsutil 完成 → 转换为 PyTorch: .venv/bin/python examples/convert_jax_model_to_pytorch.py ...  (~2 min)
+□ 检查所有路径（见第 12.1 节）
+□ 创建 tmux session，逐条发送命令，启动训练
 □ 检查 step=0 loss 出现
 ```
 
@@ -108,21 +113,19 @@ cd /workspace/openpi && git branch  # 应显示 * pytorch_lora_blackwell
 
 ## 4. 配置 Python 环境（uv sync）
 
-### 4.1 必须先修复 `av` 版本冲突
+### 4.1 确认 `av` 版本 override 是否已存在
 
-**⚠️ 关键步骤，跳过会导致 `uv sync` 失败！**
+`openpi` 通过 `lerobot` 依赖 `av` 包。`av >= 14.0` 要求 ffmpeg 7 从源码编译，而 Ubuntu 22/24 系统只有 ffmpeg 6。需要在 `pyproject.toml` 的 `[tool.uv]` 中添加 override，强制使用有预编译 wheel 的 `av 13.x`。
 
-`openpi` 通过 `lerobot` 依赖 `av` 包。`av >= 14.0` 要求 ffmpeg 7 从源码编译，而 Ubuntu 22/24 系统只有 ffmpeg 6。解决方法：在 `pyproject.toml` 的 `[tool.uv]` 中添加 override，强制使用有预编译 wheel 的 `av 13.x`：
-
+**先检查是否已存在（`pytorch_lora_blackwell` 分支通常已预置，无需修改）：**
 ```bash
-# 编辑 /workspace/openpi/pyproject.toml
-# 找到这一行：
-# override-dependencies = ["ml-dtypes==0.4.1", "tensorstore==0.1.74"]
-# 改为：
-# override-dependencies = ["ml-dtypes==0.4.1", "tensorstore==0.1.74", "av>=13.1.0,<14.0.0"]
+grep "override-dependencies" /workspace/openpi/pyproject.toml
+# 期望输出包含: "av>=13.1.0,<14.0.0"
 ```
 
-具体修改（使用 sed 或编辑器）：
+如果输出中**已包含** `av>=13.1.0,<14.0.0`，跳过下面的修复步骤，直接进入 4.2。
+
+如果**不包含**，执行修复：
 ```bash
 sed -i 's/override-dependencies = \["ml-dtypes==0.4.1", "tensorstore==0.1.74"\]/override-dependencies = ["ml-dtypes==0.4.1", "tensorstore==0.1.74", "av>=13.1.0,<14.0.0"]/' /workspace/openpi/pyproject.toml
 # 验证修改
@@ -144,12 +147,38 @@ sleep 30 && tail -10 /tmp/uv_sync.log
 # 重复直到看到 "Resolved" / "Installed" 或 error
 ```
 
+> **实测耗时**: vast.ai 服务器上约 **3–10 分钟**（取决于网速和缓存状态）。文档旧版预估 10–20 分钟偏保守。**建议 uv sync 后台运行的同时立即启动数据下载和模型下载（见并行执行建议）。**
+
 完成后验证：
 ```bash
 /workspace/openpi/.venv/bin/python -c "import torch; print(torch.__version__)"   # 2.7.x+cu128
 /workspace/openpi/.venv/bin/python -c "import jax; print(jax.__version__)"       # 0.5.x
 /workspace/openpi/.venv/bin/python -c "import transformers; print(transformers.__version__)"  # 4.53.x
 ```
+
+---
+
+## ⚡ 并行执行建议（节省 ~30 分钟）
+
+各步骤之间存在依赖关系，但多个耗时操作可以并行。**推荐执行顺序**：
+
+```
+克隆 openpi & submodule
+        │
+        ├──► 【后台】uv sync ──────────────────────────► 装TF & 打patch ──────┐
+        │                                                                     │
+        ├──► 配置 rclone gg1                                                  │
+        │        │                                                            ▼
+        │        ├──► 【后台】rclone 下载 libero_object_no_noops ──► 计算stats  ├──► 启动训练
+        │        └──► 【后台】rclone 下载 libero_object_wp_001                 │
+        │                                                                     │
+        └──► 【后台】gsutil 下载 JAX checkpoint ──► 转换 PyTorch ─────────────┘
+```
+
+- `uv sync`、`rclone` 下载、`gsutil` 下载三路**同时在后台启动**，实测总耗时约 15 分钟
+- `uv sync` 完成后立即执行第 5、6 节（装 TF、打 patch）
+- `rclone` 下载完成后立即执行第 9 节（计算 stats）
+- `gsutil` 下载完成后立即执行第 10.3 节（模型转换）
 
 ---
 
@@ -376,6 +405,8 @@ echo "Download PID=$!"
 sleep 30 && du -sh /workspace/models/pi05_base_jax/ && tail -3 /tmp/gsutil.log
 ```
 
+> **实测耗时**: vast.ai 服务器下载 GCS 公开 bucket 速度约 **200–500 MiB/s**，11.6 GB 约需 **1–3 分钟**。建议和 `uv sync`、`rclone` 下载同时后台启动。
+
 下载完成后约 12 GB，验证：
 ```bash
 ls /workspace/models/pi05_base_jax/pi05_base/params/
@@ -431,13 +462,13 @@ chmod 600 ~/.netrc
 ```
 
 验证：
-```bash
-cd /workspace/openpi
-WANDB_API_KEY=<key> .venv/bin/python -c "
-import wandb; api = wandb.Api(); print('wandb user:', api.viewer)
-"
-# 应显示邮箱地址（不报错即可）
-```
+
+> **注意**: `wandb.Api().viewer` 在新版 key 下可能返回异常，**不建议**用此命令做预验证。真正的验证在训练启动后——日志中出现 `wandb: 🚀 View run at https://...` 即表示连接成功（见第 13 节）。
+>
+> 如需提前确认 key 有效，检查 `~/.netrc` 文件中的内容是否正确写入即可：
+> ```bash
+> grep -A2 "api.wandb.ai" ~/.netrc
+> ```
 
 ---
 
@@ -466,11 +497,18 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 tmux kill-session -t waypoint_ae 2>/dev/null; sleep 1
 tmux new-session -d -s waypoint_ae -x 220 -y 50
 
-# 分步发送命令（每步之间加 sleep 2）
-tmux send-keys -t waypoint_ae "cd /workspace/openpi && export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True && export WANDB_API_KEY=<your_key>" Enter
+# 每条 send-keys 只发一个命令，之间 sleep 2 等 bash 执行完
+tmux send-keys -t waypoint_ae "cd /workspace/openpi" Enter
+sleep 2
+tmux send-keys -t waypoint_ae "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" Enter
+sleep 2
+tmux send-keys -t waypoint_ae "export WANDB_API_KEY=<your_key>" Enter
 sleep 2
 
+# 创建日志目录（在 tmux 外执行即可）
 mkdir -p /workspace/openpi/logs
+
+# 启动训练
 tmux send-keys -t waypoint_ae ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=2 scripts/train_waypoint.py --mode ae --config configs/waypoint_ae_libero.yaml 2>&1 | tee logs/waypoint_ae_libero.log" Enter
 ```
 
@@ -517,6 +555,8 @@ You are REQUIRED to use ffmpeg 7.
 override-dependencies = ["ml-dtypes==0.4.1", "tensorstore==0.1.74", "av>=13.1.0,<14.0.0"]
 ```
 `av 13.1.0` 有预编译 manylinux wheel，兼容 ffmpeg 6。
+
+> **注意**: `pytorch_lora_blackwell` 分支已预置此 override，通常无需手动修改。遇到此报错前先用 `grep "override-dependencies" pyproject.toml` 确认（见第 4.1 节）。
 
 ---
 
