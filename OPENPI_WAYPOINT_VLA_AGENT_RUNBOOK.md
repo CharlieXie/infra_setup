@@ -4,7 +4,7 @@
 >
 > **最后验证**: 2026-02-21，硬件: 2× RTX PRO 6000 Blackwell (97.9 GB)，Ubuntu 24.04，CUDA 12.8
 >
-> **覆盖范围**: Action Expert (AE) 训练 + VLM waypoint 训练
+> **覆盖范围**: Action Expert (AE) 训练 + VLM waypoint 训练 + LIBERO 评测
 >
 > **实测总耗时（从 clone 到 step=0）: ~15 分钟**（uv sync、数据下载、模型下载三路并行）
 
@@ -44,7 +44,14 @@
 14. [已知问题与修复方案](#14-已知问题与修复方案)
     - 问题 1–6: AE / 通用
     - 问题 7–10: **VLM 专属**
+    - 问题 11–13: **评测专属**
 15. [关键路径速查](#15-关键路径速查)
+16. [LIBERO 评测](#16-libero-评测)
+    - 16.1: 安装评测依赖
+    - 16.2: 准备归一化统计量
+    - 16.3: 配置评测参数
+    - 16.4: 启动评测
+    - 16.5: 查看结果与视频
 
 ---
 
@@ -70,6 +77,7 @@
 □ 等 gsutil 完成 → 转换为 PyTorch: .venv/bin/python examples/convert_jax_model_to_pytorch.py ...  (~2 min)
 □ 【AE 训练】检查所有路径（见第 12.1 节） → 创建 tmux session → 启动训练 → 检查 step=0 loss
 □ 【VLM 训练】生成 VLM 专用 norm stats（见第 9.3 节） → 检查路径（第 12.4 节） → 启动训练（第 12.5 节） → 检查 loss
+□ 【评测】安装评测依赖（见第 16 节） → 修改 eval config 指向 checkpoint → 启动 LIBERO 评测 → 查看视频
 ```
 
 ---
@@ -823,8 +831,191 @@ self.paligemma.gradient_checkpointing_enable(
 | VLM 训练日志 | `/workspace/openpi/logs/waypoint_vlm_libero.log` |
 | AE Checkpoints | `/workspace/openpi/checkpoints/waypoint_ae_libero/` |
 | VLM Checkpoints | `/workspace/openpi/checkpoints/waypoint_vlm_libero/` |
+| 评测配置 | `/workspace/openpi/configs/eval_waypoint_libero.yaml` |
+| 评测脚本 | `python -m openpi.waypoint.eval_libero` |
+| 评测日志 | `/workspace/openpi/logs/eval_libero.log` |
+| 评测视频输出 | `/workspace/openpi/data/libero/videos_wp/` |
 | Google Drive 数据源 | `gg1:dissert_ntu/libero/` |
 | Google Drive 模型存档 | `gg1:dissert_ntu/models/` |
+
+### 问题 11：评测加载 VLM checkpoint 失败 — key 不匹配
+
+```
+RuntimeError: Cannot find PaliGemma weights in checkpoint
+```
+
+**原因**: VLM 训练时 `save_checkpoint` 保存了完整的 `PI0WaypointVLM` 模型，但部分版本训练代码保存的 checkpoint 使用了 AE 模型结构（key 前缀为 `paligemma_with_expert.paligemma.*` 而非 `paligemma.*`）。
+
+**修复**: `eval_libero.py` 的 `load_vlm()` 已处理两种格式。若 checkpoint 中 key 以 `paligemma_with_expert.paligemma.` 开头，会自动 remap 为 `paligemma.*` 加载。无需手动干预。
+
+---
+
+### 问题 12：AE 推理 dtype 不匹配 — `invalid dtype for bias`
+
+```
+RuntimeError: invalid dtype for bias - should match query's dtype
+```
+
+**原因**: AE 模型以 bfloat16 加载，但 attention mask 默认创建为 float32。PyTorch SDPA 要求 attention mask 与 query 的 dtype 一致。
+
+**修复**: `ae_model.py` 的 `sample_actions()` 方法已添加自动 dtype 对齐逻辑：在传入 `paligemma_with_expert.forward()` 前，将 attention mask 和 embeddings 都转为模型权重的 dtype。此修复已合入代码。
+
+---
+
+### 问题 13：LIBERO 环境 `torch.load` 报 `weights_only` 错误
+
+```
+_pickle.UnpicklingError: Weights only load failed ... numpy.core.multiarray._reconstruct
+```
+
+**原因**: PyTorch 2.6+ 默认 `weights_only=True`，但 LIBERO benchmark 的 `get_task_init_states()` 调用 `torch.load()` 加载含 numpy 数组的 pickle 文件。
+
+**修复**: 修改 `third_party/libero/libero/libero/benchmark/__init__.py` 第 164 行：
+```python
+# 修改前
+init_states = torch.load(init_states_path)
+# 修改后
+init_states = torch.load(init_states_path, weights_only=False)
+```
+
+---
+
+## 16. LIBERO 评测
+
+> 两段式 Waypoint VLA 在 LIBERO 仿真环境中的端到端评测。VLM 预测 waypoint 轨迹，Action Expert 填充 waypoint 间的动作，在仿真中执行并记录成功率和视频。
+
+### 16.1 安装评测依赖
+
+评测需要 LIBERO 仿真环境（MuJoCo + robosuite）和相关依赖，训练环境中**不包含**这些包。
+
+```bash
+cd /workspace/openpi
+
+# 安装 robosuite、transforms3d 及 LIBERO 依赖
+uv pip install --python .venv/bin/python \
+    robosuite==1.4.1 transforms3d bddl easydict "gym==0.26.2"
+
+# 安装 LIBERO（从 third_party 子模块）
+uv pip install --python .venv/bin/python -e third_party/libero
+
+# 修复 LIBERO benchmark torch.load 兼容性（见问题 13）
+sed -i 's/init_states = torch.load(init_states_path)/init_states = torch.load(init_states_path, weights_only=False)/' \
+    third_party/libero/libero/libero/benchmark/__init__.py
+```
+
+验证：
+```bash
+PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH \
+.venv/bin/python -c "
+from libero.libero import benchmark
+bm = benchmark.get_benchmark_dict()['libero_object']()
+print(f'LIBERO Object: {bm.n_tasks} tasks')
+task = bm.get_task(0)
+print(f'Task 0: {task.language}')
+"
+# 期望: LIBERO Object: 10 tasks
+```
+
+> **注意**: LIBERO 包不在 openpi venv 的 PYTHONPATH 中，运行评测时必须设置 `PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH`。
+
+### 16.2 准备归一化统计量
+
+评测的 `NormalizationHelper` 需要包含 `action` 和 `proprio` 两个 key 的 JSON 文件，且 `action` 需含 `mask` 字段（LIBERO gripper dim 不归一化）。
+
+**如果训练时已生成 stats** (`/workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json`)，直接使用即可。
+
+**如果 stats 文件不存在**（如在新机器上只有模型 checkpoint），可以从 openpi 自带的 Pi0.5-LIBERO norm stats 转换：
+
+```bash
+cd /workspace/openpi
+mkdir -p /workspace/data/libero_object_no_noops/1.0.0
+
+.venv/bin/python -c "
+import json
+
+with open('/workspace/models/pi05_libero/pi05_libero/assets/physical-intelligence/libero/norm_stats.json') as f:
+    raw = json.load(f)
+ns = raw['norm_stats']
+
+stats = {
+    'action': {
+        'mean': ns['actions']['mean'], 'std': ns['actions']['std'],
+        'q01': ns['actions']['q01'], 'q99': ns['actions']['q99'],
+        'mask': [True, True, True, True, True, True, False],
+    },
+    'proprio': {
+        'mean': ns['state']['mean'], 'std': ns['state']['std'],
+        'q01': ns['state']['q01'], 'q99': ns['state']['q99'],
+    },
+}
+with open('/workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json', 'w') as f:
+    json.dump(stats, f, indent=2)
+print('Done. Action mask:', stats['action']['mask'])
+"
+```
+
+> **⚠️ 关键**: `mask` 中第 7 维 (gripper) 为 `False`，对应 `robot_config.py` 的 `action_norm_mask = [True]*6 + [False]`。
+
+### 16.3 配置评测参数
+
+编辑 `configs/eval_waypoint_libero.yaml`：
+
+```yaml
+# 修改 checkpoint 路径为你的实际模型目录
+vlm_checkpoint: /workspace/models/vlm                    # 或 checkpoints/waypoint_vlm_libero/<step>
+ae_checkpoint: /workspace/models/action_expert            # 或 checkpoints/waypoint_ae_libero/<step>
+
+# 归一化统计量
+dataset_statistics_path: /workspace/data/libero_object_no_noops/1.0.0
+
+# 评测参数
+num_trials_per_task: 3    # 每个 task 跑 3 次（总 30 episodes）
+num_steps_wait: 10        # 等待物体稳定
+
+# 视频输出目录
+video_out_path: data/libero/videos_wp
+```
+
+> **checkpoint 路径格式**: 目录下必须包含 `model.safetensors` 文件。
+
+### 16.4 启动评测
+
+```bash
+cd /workspace/openpi
+
+MUJOCO_GL=egl \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH \
+.venv/bin/python -m openpi.waypoint.eval_libero \
+    --config configs/eval_waypoint_libero.yaml \
+    2>&1 | tee logs/eval_libero.log
+```
+
+> **环境变量说明**:
+> - `MUJOCO_GL=egl` — 无头服务器使用 EGL 渲染（无需 X11）
+> - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` — 避免 CUDA 内存碎片化
+> - `PYTHONPATH=...` — 让 Python 能找到 `third_party/libero` 包
+>
+> **GPU 内存**: VLM (float32, ~11.7 GB) + AE (bfloat16, ~7.5 GB) ≈ 19.2 GB，单张 RTX 4090 (24 GB) 即可运行。
+>
+> **耗时预估**: 10 tasks × 3 trials = 30 episodes，每个 episode 约 30-40 秒，总计约 **15-20 分钟**。
+
+### 16.5 查看结果与视频
+
+评测结束后，日志输出每个 task 的成功率和总体成功率：
+```
+Overall success rate: XX.XX% (N/30)
+  pick_up_the_alphabet_soup_and_place_it_in_the_basket: XX.XX% (n/3)
+  ...
+```
+
+每个 episode 的回放视频保存在 `video_out_path` 目录：
+```bash
+ls data/libero/videos_wp/
+# 格式: rollout_{task_name}_t{trial}_{success|failure}.mp4
+```
+
+> **视频帧**: agentview 相机的 256×256 RGB 图像，180° 旋转（与训练数据一致），10 FPS。
 
 ---
 
@@ -843,6 +1034,12 @@ watch -n 5 nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total 
 # 检查 checkpoint 是否保存
 ls -la /workspace/openpi/checkpoints/waypoint_ae_libero/
 ls -la /workspace/openpi/checkpoints/waypoint_vlm_libero/
+
+# 实时评测进度
+tail -f /workspace/openpi/logs/eval_libero.log | grep -E "Task|SUCCESS|FAIL|Overall"
+
+# 查看评测视频
+ls -la /workspace/openpi/data/libero/videos_wp/
 
 # 查看 tmux session
 tmux attach -t waypoint_ae   # AE 训练
