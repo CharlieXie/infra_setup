@@ -983,22 +983,27 @@ video_out_path: data/libero/videos_wp
 ```bash
 cd /workspace/openpi
 
-MUJOCO_GL=egl \
+MUJOCO_GL=osmesa \
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH \
-.venv/bin/python -m openpi.waypoint.eval_libero \
+PYTHONFAULTHANDLER=1 \
+.venv/bin/python -u -m openpi.waypoint.eval_libero \
     --config configs/eval_waypoint_libero.yaml \
     2>&1 | tee logs/eval_libero.log
 ```
 
 > **环境变量说明**:
-> - `MUJOCO_GL=egl` — 无头服务器使用 EGL 渲染（无需 X11）
+> - `MUJOCO_GL=osmesa` — 使用 OSMesa 软件渲染（兼容性最好）；如服务器 GPU 驱动支持 EGL，也可用 `MUJOCO_GL=egl`
 > - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` — 避免 CUDA 内存碎片化
 > - `PYTHONPATH=...` — 让 Python 能找到 `third_party/libero` 包
+> - `PYTHONFAULTHANDLER=1` — 遇到 segfault 时打印 Python 调用栈，便于排查
+> - `-u` — 无缓冲输出，确保 tee 实时显示日志
+>
+> **注意**: 脚本内部已设置 `NUMBA_DISABLE_JIT=1`，避免 numba/llvmlite 与 TensorFlow/JAX 的 LLVM 符号冲突导致 segfault。
 >
 > **GPU 内存**: VLM (float32, ~11.7 GB) + AE (bfloat16, ~7.5 GB) ≈ 19.2 GB，单张 RTX 4090 (24 GB) 即可运行。
 >
-> **耗时预估**: 10 tasks × 3 trials = 30 episodes，每个 episode 约 30-40 秒，总计约 **15-20 分钟**。
+> **耗时预估**: 模型加载约 2 分钟（已优化：跳过随机初始化、避免重复读取 checkpoint），10 tasks × 3 trials = 30 episodes，每个 episode 约 30-40 秒，总计约 **15-20 分钟**。
 
 ### 16.5 查看结果与视频
 
