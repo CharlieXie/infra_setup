@@ -2,7 +2,7 @@
 
 > **目标读者**: AI Agent。本文档记录了在全新 vast.ai 服务器上从零到训练启动的完整操作流程，包含所有实际踩坑细节和修复方法。与 `OPENPI_WAYPOINT_VLA_SETUP.md`（设计规范版）结合使用。
 >
-> **最后验证**: 2026-02-21，硬件: 2× RTX PRO 6000 Blackwell (97.9 GB)，Ubuntu 24.04，CUDA 12.8
+> **最后验证**: 2026-02-25，硬件: 2× RTX PRO 6000 Blackwell (97.9 GB)，Ubuntu 24.04，CUDA 12.8
 >
 > **覆盖范围**: Action Expert (AE) 训练 + VLM waypoint 训练 + LIBERO 评测
 >
@@ -17,6 +17,8 @@
 3. **tmux send-keys 每次只发一条命令**。不要在同一个 `send-keys` 里拼接多条命令，避免 bash 解析混乱。先发 `cd` 和 `export`，再单独发训练命令。
 4. **发现错误立刻读日志**，不要盲目重试。每次失败后先 `tail -50 <logfile>` 定位根因。
 5. **路径严格按照本文档**，不要自行发明路径。所有数据/模型/日志路径已在下方列出。
+6. **需要 stdin 输入的命令用管道提前传入**。若命令会弹出交互式 `Y/N` 提示（如 LIBERO benchmark 初始化），用 `echo "N" | command` 方式运行，避免进程挂起。
+7. **写文件前先确认目标目录可写**（`touch /path/test && rm /path/test`）。rclone/gsutil 下载的目录属主可能为 `nobody:nogroup`，无写权限，需另选可写路径（如 `/workspace/data/`）保存输出文件。
 
 ---
 
@@ -44,7 +46,7 @@
 14. [已知问题与修复方案](#14-已知问题与修复方案)
     - 问题 1–6: AE / 通用
     - 问题 7–10: **VLM 专属**
-    - 问题 11–13: **评测专属**
+    - 问题 11–15: **评测专属**
 15. [关键路径速查](#15-关键路径速查)
 16. [LIBERO 评测](#16-libero-评测)
     - 16.1: 安装评测依赖
@@ -58,9 +60,11 @@
 ## 1. 快速 Checklist
 
 ```
+> 📌 **如果只做评测（已有训练好的 checkpoint）**：跳过第 7–13 节（rclone/gsutil/wandb/训练），只需完成第 2、3、4、5、6、16 节。
+
 □ touch ~/.no_auto_tmux  （重连后生效）
 □ git config --global user.email/name
-□ sudo apt-get install -y ffmpeg pkg-config build-essential
+□ sudo apt-get install -y ffmpeg pkg-config build-essential libosmesa6-dev libgles2 libegl1
 □ cd /workspace && git clone openpi (pytorch_lora_blackwell branch)
 □ git submodule update --init --recursive
 □ 检查 pyproject.toml 是否已含 av>=13.1.0,<14.0.0（通常已有，无需修改）
@@ -93,8 +97,9 @@ touch ~/.no_auto_tmux
 git config --global user.email "chuanliang.xie@gmail.com"
 git config --global user.name "chuanliang"
 
-# 安装构建依赖（uv sync 需要）
-sudo apt-get install -y ffmpeg pkg-config build-essential
+# 安装构建依赖（uv sync 需要）+ MuJoCo OSMesa 渲染依赖（评测必须）
+sudo apt-get install -y ffmpeg pkg-config build-essential \
+    libosmesa6-dev libgles2 libegl1
 ```
 
 > **注意**: vast.ai 镜像通常预装 `uv`（`/usr/local/bin/uv`）和 `rclone`，无需重新安装。执行前先检查：
@@ -372,7 +377,10 @@ out = {'libero_object_no_noops': {
     'proprio': stats(all_proprios),
     'num_samples': len(all_actions),
 }}
-path = '/workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json'
+# ⚠️ 注意：保存到 /workspace/data/ 而非数据目录内
+# rclone 下载的目录属主为 nobody:nogroup，无写权限（行为准则第 7 条）
+# 此路径也与 eval config 的 dataset_statistics_path 默认值一致
+path = '/workspace/data/dataset_statistics.json'
 with open(path, 'w') as f:
     json.dump(out, f, indent=2)
 print('Saved to', path)
@@ -388,7 +396,7 @@ PYEOF
 ```bash
 python3 -c "
 import json
-d = json.load(open('/workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json'))
+d = json.load(open('/workspace/data/dataset_statistics.json'))
 k = list(d.keys())[0]
 print('dataset:', k)
 print('action q99 dims:', len(d[k]['action']['q99']))   # 必须是 7
@@ -551,7 +559,7 @@ chmod 600 ~/.netrc
 # 一次性检查所有必需路径
 ls /workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0/dataset_info.json && echo "✓ RLDS"
 ls /workspace/data/libero/libero_object_wp_001/waypoint_indices.json && echo "✓ waypoint_indices"
-ls /workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json && echo "✓ stats"
+ls /workspace/data/dataset_statistics.json && echo "✓ stats"
 ls /workspace/models/pi05_base_pytorch/model.safetensors && echo "✓ model"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 ```
@@ -825,7 +833,7 @@ self.paligemma.gradient_checkpointing_enable(
 | LIBERO RLDS 原始数据 | `/workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0/` |
 | Waypoint indices | `/workspace/data/libero/libero_object_wp_001/waypoint_indices.json` |
 | Waypoint filtered RLDS（VLM 用） | `/workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |
-| **Dataset statistics（AE 用）** | `/workspace/data/libero_object_no_noops/1.0.0/dataset_statistics.json` |
+| **Dataset statistics（AE 用）** | `/workspace/data/dataset_statistics.json` |
 | **Dataset statistics（VLM 用）** | `/workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json` |
 | AE 训练日志 | `/workspace/openpi/logs/waypoint_ae_libero.log` |
 | VLM 训练日志 | `/workspace/openpi/logs/waypoint_vlm_libero.log` |
@@ -862,7 +870,33 @@ RuntimeError: invalid dtype for bias - should match query's dtype
 
 ---
 
-### 问题 13：LIBERO 环境 `torch.load` 报 `weights_only` 错误
+### 问题 14：评测启动时 MuJoCo 报 `'NoneType' object has no attribute 'glGetError'`
+
+```
+AttributeError: 'NoneType' object has no attribute 'glGetError'
+  File ".../mujoco/osmesa/__init__.py"
+  File ".../OpenGL/raw/GL/_errors.py"
+```
+
+**原因**: `MUJOCO_GL=osmesa` 依赖系统的 OSMesa 库（软件渲染），但该库未安装。此错误信息不直观，容易误判为 Python 包问题。
+
+**修复**: 安装系统 OSMesa 依赖（建议在第 2 节 apt-get 时一并安装）：
+```bash
+sudo apt-get install -y libosmesa6-dev libgles2 libegl1
+```
+
+安装后验证：
+```bash
+cd /workspace/openpi
+.venv/bin/python -c "from OpenGL.GL import glGetError; print('OpenGL OK')"
+# 期望: OpenGL OK
+```
+
+> **注意**: 必须用 `.venv/bin/python` 验证，不能用系统 `python3`（OpenGL 包安装在 venv 中）。
+
+---
+
+### 问题 15（原问题 13）：LIBERO 环境 `torch.load` 报 `weights_only` 错误
 
 ```
 _pickle.UnpicklingError: Weights only load failed ... numpy.core.multiarray._reconstruct
@@ -905,7 +939,9 @@ sed -i 's/init_states = torch.load(init_states_path)/init_states = torch.load(in
 
 验证：
 ```bash
-PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH \
+# ⚠️ LIBERO 初始化时会弹出交互式提示 "Do you want to specify a custom path? (Y/N)"
+# 必须用 echo "N" | 管道传入，否则命令挂起（行为准则第 6 条）
+echo "N" | PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH \
 .venv/bin/python -c "
 from libero.libero import benchmark
 bm = benchmark.get_benchmark_dict()['libero_object']()
@@ -961,12 +997,17 @@ print('Done. Action mask:', stats['action']['mask'])
 编辑 `configs/eval_waypoint_libero.yaml`：
 
 ```yaml
-# 修改 checkpoint 路径为你的实际模型目录
-vlm_checkpoint: /workspace/models/vlm                    # 或 checkpoints/waypoint_vlm_libero/<step>
-ae_checkpoint: /workspace/models/action_expert            # 或 checkpoints/waypoint_ae_libero/<step>
+# checkpoint 路径有两种格式（eval_libero.py 会自动拼接 model.safetensors）：
+#   格式 A — 训练中途的 checkpoint（有 step 子目录）:
+#     vlm_checkpoint: /workspace/openpi/checkpoints/waypoint_vlm_libero/5000
+#   格式 B — 直接提供的模型目录（model.safetensors 在根目录下）:
+#     vlm_checkpoint: /workspace/models/vlm
+# 两种格式均可，目录下有 model.safetensors 文件即可
+vlm_checkpoint: /workspace/models/vlm
+ae_checkpoint: /workspace/models/ae
 
-# 归一化统计量
-dataset_statistics_path: /workspace/data/libero_object_no_noops/1.0.0
+# 归一化统计量（第 9.2 节生成的文件路径）
+dataset_statistics_path: /workspace/data/dataset_statistics.json
 
 # 评测参数
 num_trials_per_task: 3    # 每个 task 跑 3 次（总 30 episodes）
@@ -976,7 +1017,7 @@ num_steps_wait: 10        # 等待物体稳定
 video_out_path: data/libero/videos_wp
 ```
 
-> **checkpoint 路径格式**: 目录下必须包含 `model.safetensors` 文件。
+> **checkpoint 路径格式**: 目录下必须包含 `model.safetensors` 文件，路径填到包含该文件的目录层级即可。
 
 ### 16.4 启动评测
 
