@@ -250,9 +250,9 @@ echo "AE stats PID=$!"
 ```bash
 cd /workspace/openpi
 .venv/bin/python scripts/compute_wp_norm_stats.py \
-    --rlds_dir /workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0 \
+    --rlds_dir /workspace/data/modified_libero_rlds/libero_object_no_noops/1.0.0 \
     --robot_type libero \
-    --output_dir /workspace/data/libero/libero_object_wp_001/norm_stats
+    --output_dir /workspace/data
 # 约 30-40s，处理 8863 步
 ```
 
