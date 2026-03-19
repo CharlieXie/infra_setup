@@ -10,7 +10,7 @@
 
 ## Agent 行为准则
 
-1. **`sleep` 最多 30 秒**，循环轮询长任务。
+1. **轮询长任务用循环**，不要固定 `sleep 30`；模式：`while ! grep -q "完成标志" log; do sleep 10 && tail -2 log; done`。
 2. **后台任务用 `&`**，输出重定向文件，用 `tail` 检查。
 3. **发现错误立刻读日志**，不要盲目重试。
 4. **stdin 交互用管道传入**：`echo "N" | command`，避免挂起。
@@ -26,13 +26,14 @@
 □ git config global user
 □ cd /workspace && git clone openpi（v1_e2e 分支）
 □ GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive
-□ uv sync（后台）→ 完成标志: "Installed N packages"
-□ 安装 TF 2.15.0 + tensorflow-datasets 4.9.3
+□ uv sync（后台）→ 循环轮询 → 完成标志: "Installed N packages"
+□ 安装 TF 2.15.0 + tensorflow-datasets 4.9.3（循环轮询）
 □ 打 transformers patch → 验证 "patch OK"
 □ 确认 dataset_statistics.json 路径（/workspace/data/dataset_statistics.json）
-□ 安装评测依赖（robosuite、libero）
+□ 安装评测依赖（robosuite 循环轮询、libero）
 □ 修复 torch.load weights_only
-□ 启动 tmux 评测 → tail logs/eval_libero.log
+□ mkdir -p .torch_cache（torch_compile 编译缓存）
+□ 启动 tmux 评测（含 TORCHINDUCTOR_CACHE_DIR）→ tail logs/eval_libero.log
 ```
 
 ---
@@ -86,9 +87,21 @@ echo "PID=$!"
 
 监控（实测约 3-10 分钟）：
 ```bash
-sleep 30 && tail -5 /tmp/uv_sync.log
+# 循环轮询，完成即退出，避免固定 sleep 浪费时间
+while ! grep -q "Installed" /tmp/uv_sync.log 2>/dev/null; do
+    sleep 10 && tail -2 /tmp/uv_sync.log
+done
+echo "uv sync done"
 # 完成标志: "Installed N packages"
 ```
+
+> **加速提示（重复部署）**：如果同一台机器需要多次搭建环境（例如重建容器），可以把 `.venv/` 目录打包备份，下次直接解压，跳过 uv sync（节省 3-10 分钟）：
+> ```bash
+> # 备份（首次完成后）
+> tar -czf /workspace/venv_backup.tar.gz -C /workspace/openpi .venv
+> # 还原（新机器/重建后）
+> tar -xzf /workspace/venv_backup.tar.gz -C /workspace/openpi
+> ```
 
 ### 3.2 安装 TensorFlow（uv sync 完成后）
 
@@ -97,8 +110,11 @@ cd /workspace/openpi
 uv pip install --python .venv/bin/python "tensorflow==2.15.0" "tensorflow-datasets==4.9.3" \
     > /tmp/tf_install.log 2>&1 &
 echo "PID=$!"
-# 完成后验证：
-sleep 30 && tail -3 /tmp/tf_install.log  # "Installed N packages"
+# 循环轮询，完成即退出
+while ! grep -q "Installed" /tmp/tf_install.log 2>/dev/null; do
+    sleep 10 && tail -2 /tmp/tf_install.log
+done
+echo "TF install done"
 
 .venv/bin/python -c "import tensorflow as tf; print('TF:', tf.__version__)"
 # TF: 2.15.0
@@ -157,7 +173,11 @@ uv pip install --python .venv/bin/python \
     robosuite==1.4.1 transforms3d bddl easydict "gym==0.26.2" \
     > /tmp/robosuite_install.log 2>&1 &
 echo "PID=$!"
-sleep 30 && grep "Installed" /tmp/robosuite_install.log
+# 循环轮询，完成即退出
+while ! grep -q "Installed" /tmp/robosuite_install.log 2>/dev/null; do
+    sleep 10 && tail -2 /tmp/robosuite_install.log
+done
+echo "robosuite install done"
 
 # LIBERO（editable 安装）
 uv pip install --python .venv/bin/python -e third_party/libero
@@ -234,14 +254,16 @@ ls /workspace/data/dataset_statistics.json    && echo "✓ stats"
 
 ```bash
 cd /workspace/openpi
-mkdir -p logs data/libero/videos_wp_joint_object
+mkdir -p logs data/libero/videos_wp_joint_object .torch_cache
 
 # 杀掉旧 session（如有），启动新 session
 tmux kill-session -t eval 2>/dev/null; sleep 1
 tmux new-session -d -s eval \
-    'cd /workspace/openpi && MUJOCO_GL=osmesa PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH PYTHONFAULTHANDLER=1 .venv/bin/python -u -m openpi.waypoint.eval_libero --config configs/eval_waypoint_joint_libero.yaml 2>&1 | tee logs/eval_libero.log'
+    'cd /workspace/openpi && MUJOCO_GL=osmesa PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TORCHINDUCTOR_CACHE_DIR=/workspace/openpi/.torch_cache PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH PYTHONFAULTHANDLER=1 .venv/bin/python -u -m openpi.waypoint.eval_libero --config configs/eval_waypoint_joint_libero.yaml 2>&1 | tee logs/eval_libero.log'
 echo "tmux session eval started"
 ```
+
+> **`TORCHINDUCTOR_CACHE_DIR` 说明**：`torch_compile: true` 会在首次运行时编译 CUDA kernel（耗时 5-10 分钟），编译结果缓存在 `.torch_cache/`。第二次及之后运行直接复用缓存，模型加载后即可正常速度推理。如果更换了模型结构或 PyTorch 版本，需清空缓存：`rm -rf /workspace/openpi/.torch_cache`。
 
 监控：
 ```bash
