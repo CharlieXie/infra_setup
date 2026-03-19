@@ -54,6 +54,9 @@ cd /workspace/openpi
 # TF 必须 2.15.0，高版本与 ml_dtypes 冲突
 uv pip install --python .venv/bin/python "tensorflow==2.15.0" "tensorflow-datasets==4.9.3"
 
+# 升级 NCCL（PyTorch 自带的 2.26.2 在 Blackwell 多卡通信时有 bug）
+uv pip install --python .venv/bin/python "nvidia-nccl-cu12>=2.29"
+
 cp -r ./src/openpi/models_pytorch/transformers_replace/* \
     .venv/lib/python3.11/site-packages/transformers/
 

@@ -126,6 +126,9 @@ cd /workspace/openpi
 uv pip install --python .venv/bin/python \
     "tensorflow==2.15.0" \
     "tensorflow-datasets==4.9.3"
+
+# 升级 NCCL（PyTorch 自带的 2.26.2 在 Blackwell 多卡通信时有 bug）
+uv pip install --python .venv/bin/python "nvidia-nccl-cu12>=2.29"
 ```
 
 > **注意**: `tensorflow==2.20.0` 与当前 `ml_dtypes` 版本不兼容，会报 `AttributeError: module 'ml_dtypes' has no attribute 'int2'`。必须使用 2.15.0。
@@ -517,13 +520,13 @@ imgs = imgs.transpose(0, 3, 1, 2)  # (B, H, W, C) -> (B, C, H, W)
 
 ### Q: `CUDA error: an illegal memory access` (DDP)
 
-**原因**: NCCL 后端在该环境有兼容性问题。
+**原因**: PyTorch 自带的 `nvidia-nccl-cu12==2.26.2` 在 Blackwell GPU (sm_120) 上进行多卡通信（>2MB）时会触发 illegal memory access。
 
-**解决**: 确认 `train_waypoint.py` 中 DDP backend 为 `"gloo"`：
-```python
-backend = "gloo"
-dist.init_process_group(backend=backend, init_method="env://")
+**解决**: 升级 NCCL 库：
+```bash
+uv pip install --python .venv/bin/python "nvidia-nccl-cu12>=2.29"
 ```
+`train_waypoint.py` 中 DDP backend 应保持 `"nccl"`（升级 NCCL 后性能远优于 `"gloo"`）。
 
 ### Q: `AttributeError: module 'ml_dtypes' has no attribute 'int2'`
 

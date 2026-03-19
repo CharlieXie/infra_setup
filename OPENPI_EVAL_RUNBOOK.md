@@ -91,6 +91,9 @@ sleep 30 && tail -5 /tmp/uv_sync.log
 cd /workspace/openpi
 uv pip install --python .venv/bin/python "tensorflow==2.15.0" "tensorflow-datasets==4.9.3"
 # ⚠️ 必须 2.15.0，>=2.16 与 ml_dtypes 冲突
+
+# 升级 NCCL（PyTorch 自带的 2.26.2 在 Blackwell 多卡通信时有 bug）
+uv pip install --python .venv/bin/python "nvidia-nccl-cu12>=2.29"
 ```
 
 验证：

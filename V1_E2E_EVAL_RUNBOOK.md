@@ -120,7 +120,15 @@ echo "TF install done"
 # TF: 2.15.0
 ```
 
-### 3.3 应用 transformers 补丁
+### 3.3 升级 NCCL（Blackwell 多卡必须）
+
+```bash
+cd /workspace/openpi
+uv pip install --python .venv/bin/python "nvidia-nccl-cu12>=2.29"
+# PyTorch 自带的 nvidia-nccl-cu12==2.26.2 在 Blackwell (sm_120) 多卡通信时有 illegal memory access bug
+```
+
+### 3.4 应用 transformers 补丁
 
 ```bash
 cd /workspace/openpi

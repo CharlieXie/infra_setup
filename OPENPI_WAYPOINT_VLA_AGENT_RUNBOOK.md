@@ -50,5 +50,9 @@ GIT_LFS_SKIP_SMUDGE=1 uv sync > /tmp/uv_sync.log 2>&1 &
 
 # 6. 安装 TF + transformers patch（uv sync 完成后）
 uv pip install --python .venv/bin/python "tensorflow==2.15.0" "tensorflow-datasets==4.9.3"
+
+# 7. 升级 NCCL（PyTorch 自带的 2.26.2 在 Blackwell 多卡通信时有 bug）
+uv pip install --python .venv/bin/python "nvidia-nccl-cu12>=2.29"
+
 cp -r ./src/openpi/models_pytorch/transformers_replace/* .venv/lib/python3.11/site-packages/transformers/
 ```
