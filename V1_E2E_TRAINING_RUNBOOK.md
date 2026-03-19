@@ -1,6 +1,6 @@
 # E2E 环境配置记录
 
-> 最后验证：2026-03-18，硬件：1× RTX PRO 6000 Blackwell，Ubuntu 24.04，CUDA 12.8
+> 最后验证：2026-03-19，硬件：2× RTX PRO 6000 Blackwell，Ubuntu 24.04，CUDA 12.8
 
 ---
 
@@ -8,8 +8,8 @@
 
 | 项目 | 值 |
 |------|----|
-| GPU | NVIDIA RTX PRO 6000 Blackwell Workstation Edition |
-| 显存 | 97,887 MiB (~95 GB) |
+| GPU | NVIDIA RTX PRO 6000 Blackwell Workstation Edition × 2 |
+| 显存 | 97,887 MiB (~95 GB) × 2 |
 | CUDA 版本 | 12.8 |
 | 驱动版本 | 590.48.01 |
 | OS | Ubuntu 24.04 |
@@ -85,34 +85,13 @@ print('patch OK')
 | Dataset statistics | `/workspace/openpi/data/dataset_statistics.json` |
 | Pi0.5 base 权重 | `/workspace/models/pi05_base_pytorch/model.safetensors` |
 
-### 生成 dataset_statistics.json
+### 准备 dataset_statistics.json
+
+`dataset_statistics.json` 已预置于 `/workspace/data/`，直接复制即可，**无需重新计算**：
 
 ```bash
 cd /workspace/openpi && mkdir -p data
-
-.venv/bin/python - << 'PYEOF'
-import os; os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import tensorflow as tf; tf.config.set_visible_devices([], 'GPU')
-import tensorflow_datasets as tfds
-import numpy as np, json
-
-b = tfds.builder_from_directory('/workspace/data/object/libero_object_no_noops/libero_object_no_noops/1.0.0')
-ds = b.as_dataset(split='train')
-all_actions, all_proprios = [], []
-for ep in ds:
-    for step in ep['steps']:
-        all_actions.append(step['action'].numpy().astype('float32'))
-        all_proprios.append(step['observation']['state'].numpy().astype('float32').flatten())
-all_actions = np.stack(all_actions); all_proprios = np.stack(all_proprios)
-print(f'Actions: {all_actions.shape}, Proprios: {all_proprios.shape}')  # (66984,7), (66984,8)
-def stats(arr):
-    return {'mean': arr.mean(0).tolist(), 'std': arr.std(0).tolist(),
-            'q01': np.percentile(arr,1,0).tolist(), 'q99': np.percentile(arr,99,0).tolist(),
-            'min': arr.min(0).tolist(), 'max': arr.max(0).tolist()}
-out = {'libero_object_no_noops': {'action': stats(all_actions), 'proprio': stats(all_proprios), 'num_samples': len(all_actions)}}
-with open('/workspace/openpi/data/dataset_statistics.json', 'w') as f: json.dump(out, f, indent=2)
-print('Saved.')
-PYEOF
+cp /workspace/data/dataset_statistics.json /workspace/openpi/data/dataset_statistics.json
 ```
 
 ---
@@ -151,10 +130,8 @@ tmux new-session -d -s joint_train -x 220 -y 50
 tmux send-keys -t joint_train "cd /workspace/openpi" Enter; sleep 2
 tmux send-keys -t joint_train "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" Enter; sleep 2
 tmux send-keys -t joint_train "export WANDB_API_KEY=<your_wandb_api_key>" Enter; sleep 2
-tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=1 scripts/train_waypoint_joint.py --config configs/waypoint_joint_libero.yaml 2>&1 | tee logs/waypoint_joint_libero_object.log" Enter
+tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=2 scripts/train_waypoint_joint.py --config configs/waypoint_joint_libero.yaml 2>&1 | tee logs/waypoint_joint_libero_object.log" Enter
 ```
-
-> ⚠️ 本机只有 1 块 GPU，使用 `--nproc_per_node=1`（原始文档为 2）。
 
 ### 关键配置文件：`configs/waypoint_joint_libero.yaml`
 
@@ -168,20 +145,23 @@ tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --npro
 | `paligemma_variant` | `gemma_2b` |
 | `action_expert_variant` | `gemma_300m` |
 | `precision` | `bfloat16` |
-| `vlm_batch_size` | `24` (per GPU) |
-| `ae_batch_size` | `24` (per GPU) |
-| `num_train_steps` | `20000` |
+| `vlm_batch_size` | `8` (per GPU，2 GPU 下实测不 OOM) |
+| `ae_batch_size` | `8` (per GPU，2 GPU 下实测不 OOM) |
+| `num_train_steps` | `10000` |
 | `warmup_steps` | `400` |
-| `peak_lr` | `9.0e-5` |
+| `peak_lr` | `5.0e-5` |
 | `end_lr` | `1.0e-7` |
-| `gradient_strategy` | `none` |
+| `gradient_strategy` | `stop_gradient` |
 | `ae_loss_weight` | `1.0` |
 | `lora_enabled` | `false` |
 | `train_vision_encoder` | `true` |
 | `wandb_project` | `waypoint_e2e` |
-| `exp_name` | `waypoint_joint_libero_01` |
-| `checkpoint_dir` | `checkpoints/waypoint_joint_libero_01` |
-| `save_interval` | `1500` |
+| `exp_name` | `waypoint_joint_libero_sg` |
+| `checkpoint_dir` | `checkpoints/{exp_name}` |
+| `save_interval` | `800` |
+
+> ⚠️ **显存注意**：模型 + batch_size=8 per GPU 在 95GB 卡上刚好可用（gradient_checkpointing 已在训练脚本中默认启用）。
+> 如需加大 batch size，建议从 8 → 12 逐步测试，勿直接设为 24（会 OOM）。
 
 ### 期望初始 loss
 
@@ -214,8 +194,8 @@ tmux attach -t joint_train
 | 训练脚本 | `/workspace/openpi/scripts/train_waypoint_joint.py` |
 | 训练配置 | `/workspace/openpi/configs/waypoint_joint_libero.yaml` |
 | 训练日志 | `/workspace/openpi/logs/waypoint_joint_libero_object.log` |
-| Checkpoint | `/workspace/openpi/checkpoints/waypoint_joint_libero_01/` |
-| Dataset statistics | `/workspace/openpi/data/dataset_statistics.json` |
+| Checkpoint | `/workspace/openpi/checkpoints/waypoint_joint_libero_sg/` |
+| Dataset statistics | `/workspace/openpi/data/dataset_statistics.json`（从 `/workspace/data/` 复制） |
 | Pi0.5 base 权重 | `/workspace/models/pi05_base_pytorch/model.safetensors` |
 | LIBERO RLDS | `/workspace/data/object/libero_object_no_noops/libero_object_no_noops/1.0.0/` |
 | Waypoint filtered RLDS | `/workspace/data/object/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |
