@@ -145,8 +145,8 @@ tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --npro
 | `paligemma_variant` | `gemma_2b` |
 | `action_expert_variant` | `gemma_300m` |
 | `precision` | `bfloat16` |
-| `vlm_batch_size` | `8` (per GPU，2 GPU 下实测不 OOM) |
-| `ae_batch_size` | `8` (per GPU，2 GPU 下实测不 OOM) |
+| `vlm_batch_size` | `24` (per GPU) |
+| `ae_batch_size` | `24` (per GPU) |
 | `num_train_steps` | `10000` |
 | `warmup_steps` | `400` |
 | `peak_lr` | `5.0e-5` |
@@ -159,9 +159,6 @@ tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --npro
 | `exp_name` | `waypoint_joint_libero_sg` |
 | `checkpoint_dir` | `checkpoints/{exp_name}` |
 | `save_interval` | `800` |
-
-> ⚠️ **显存注意**：模型 + batch_size=8 per GPU 在 95GB 卡上刚好可用（gradient_checkpointing 已在训练脚本中默认启用）。
-> 如需加大 batch size，建议从 8 → 12 逐步测试，勿直接设为 24（会 OOM）。
 
 ### 期望初始 loss
 
