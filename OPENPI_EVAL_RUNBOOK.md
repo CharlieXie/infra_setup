@@ -122,47 +122,27 @@ print('transformers patch OK')
 
 > 评测时 `NormalizationHelper` 需要 `action` 和 `proprio` 统计量做反归一化。
 
-**如果已有 `/workspace/data/dataset_statistics.json`，跳过本节。**
+**如果已有 `/workspace/data/dataset_statistics.json` 且格式正确（flat 格式，proprio=6 维），跳过本节。**
 
-否则从 LIBERO RLDS 数据计算（需先有数据，见注释）：
+从原始 RLDS 数据计算（约 60s）：
 
 ```bash
 cd /workspace/openpi
 
 # ⚠️ 目标路径必须是 /workspace/data/（可写），不要写到 RLDS 数据目录（nobody:nogroup 无写权限）
-.venv/bin/python - << 'PYEOF' > /tmp/compute_stats.log 2>&1 &
-import os; os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import tensorflow as tf; tf.config.set_visible_devices([], 'GPU')
-import tensorflow_datasets as tfds
-import numpy as np, json
-
-b = tfds.builder_from_directory(
-    '/workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0')
-ds = b.as_dataset(split='train')
-all_actions, all_proprios = [], []
-for ep in ds:
-    for step in ep['steps']:
-        all_actions.append(step['action'].numpy().astype('float32'))
-        all_proprios.append(step['observation']['state'].numpy().astype('float32').flatten())
-all_actions = np.stack(all_actions)
-all_proprios = np.stack(all_proprios)
-print(f'Actions: {all_actions.shape}, Proprios: {all_proprios.shape}')
-# 期望: (66984, 7), (66984, 8)
-def stats(arr):
-    return {'mean': arr.mean(0).tolist(), 'std': arr.std(0).tolist(),
-            'q01': np.percentile(arr, 1, 0).tolist(), 'q99': np.percentile(arr, 99, 0).tolist(),
-            'min': arr.min(0).tolist(), 'max': arr.max(0).tolist()}
-out = {'libero_object_no_noops': {'action': stats(all_actions), 'proprio': stats(all_proprios), 'num_samples': len(all_actions)}}
-path = '/workspace/data/dataset_statistics.json'
-with open(path, 'w') as f: json.dump(out, f, indent=2)
-print('Saved to', path)
-PYEOF
+.venv/bin/python scripts/compute_wp_norm_stats.py \
+    --rlds_dir /workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0 \
+    --robot_type libero \
+    --output_dir /workspace/data \
+    > /tmp/compute_stats.log 2>&1 &
 echo "stats PID=$!"
 ```
 
 监控（约 60 秒）：
 ```bash
-sleep 30 && tail -5 /tmp/compute_stats.log
+while ! grep -q "Saved to" /tmp/compute_stats.log 2>/dev/null; do
+    sleep 10 && tail -2 /tmp/compute_stats.log
+done
 # 完成标志: "Saved to /workspace/data/dataset_statistics.json"
 ```
 
@@ -170,9 +150,9 @@ sleep 30 && tail -5 /tmp/compute_stats.log
 ```bash
 .venv/bin/python -c "
 import json; d = json.load(open('/workspace/data/dataset_statistics.json'))
-k = list(d.keys())[0]
-print('action dims:', len(d[k]['action']['q99']))   # 7
-print('proprio dims:', len(d[k]['proprio']['q99'])) # 8
+print('action dims:', len(d['action']['q99']))   # 7 (gripper 已 normalize)
+print('proprio dims:', len(d['proprio']['q99'])) # 6 (连续维度，不含 gripper)
+print('steps:', d['num_transitions'])             # 66984
 "
 ```
 

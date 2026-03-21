@@ -29,7 +29,7 @@
 □ uv sync（后台）→ 循环轮询 → 完成标志: "Installed N packages"
 □ 安装 TF 2.15.0 + tensorflow-datasets 4.9.3（循环轮询）
 □ 打 transformers patch → 验证 "patch OK"
-□ 确认 dataset_statistics.json 路径（/workspace/data/dataset_statistics.json）
+□ 生成 dataset_statistics.json（compute_wp_norm_stats.py，约 60s）
 □ 安装评测依赖（robosuite 循环轮询、libero）
 □ 修复 torch.load weights_only
 □ mkdir -p .torch_cache（torch_compile 编译缓存）
@@ -144,30 +144,32 @@ print('transformers patch OK')
 
 ---
 
-## 4. 确认 dataset_statistics.json
+## 4. 生成 dataset_statistics.json
 
-**如果已有 `/workspace/data/dataset_statistics.json`，跳过本节。**
+**如果已有 `/workspace/data/dataset_statistics.json` 且格式正确（flat 格式，proprio=6 维），跳过本节。**
 
-本次发现统计文件已存在于 `/workspace/data/libero/dataset_statistics.json`，直接复制到期望路径：
+使用 `compute_wp_norm_stats.py` 从原始 RLDS 数据计算（约 60s）：
 
 ```bash
-# 检查
-ls /workspace/data/dataset_statistics.json 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
-ls /workspace/data/libero/dataset_statistics.json 2>/dev/null && echo "libero/ EXISTS"
-
-# 若只有 libero/ 下有，则复制
-cp /workspace/data/libero/dataset_statistics.json /workspace/data/dataset_statistics.json
-
-# 验证维度
-.venv/bin/python -c "
-import json; d = json.load(open('/workspace/data/dataset_statistics.json'))
-k = list(d.keys())[0]
-print('action dims:', len(d[k]['action']['q99']))   # 7
-print('proprio dims:', len(d[k]['proprio']['q99'])) # 8
-"
+cd /workspace/openpi
+.venv/bin/python scripts/compute_wp_norm_stats.py \
+    --rlds_dir /workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0 \
+    --robot_type libero \
+    --output_dir /workspace/data
+# 完成标志: "Saved to /workspace/data/dataset_statistics.json"
 ```
 
-> 若两处都不存在，参考 `OPENPI_EVAL_RUNBOOK.md` 第 4 节从 RLDS 数据重新计算（约 60s）。
+> **说明**：脚本会对 action gripper 维度应用 `normalize_gripper`（raw [-1,1] → {0,1}），proprio 只保留连续维度（dims 0-5，不含 gripper qpos），输出 flat JSON（无外层 dataset 名称 key）。
+
+验证：
+```bash
+.venv/bin/python -c "
+import json; d = json.load(open('/workspace/data/dataset_statistics.json'))
+print('action dims:', len(d['action']['q99']))   # 7 (gripper 已 normalize)
+print('proprio dims:', len(d['proprio']['q99']))  # 6 (连续维度，不含 gripper)
+print('steps:', d['num_transitions'])             # 66984
+"
+```
 
 ---
 

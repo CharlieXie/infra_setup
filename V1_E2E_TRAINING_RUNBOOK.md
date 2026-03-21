@@ -23,14 +23,14 @@
 cd /workspace
 git clone https://<PAT>@github.com/CharlieXie/openpi.git
 cd openpi
-git checkout v1_e2e
+git checkout v1.2_e2e
 GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive
 ```
 
 | 项目 | 值 |
 |------|----|
 | 仓库路径 | `/workspace/openpi` |
-| 分支 | `v1_e2e` |
+| 分支 | `v1.2_e2e` |
 | 子模块 | `third_party/aloha`, `third_party/libero` |
 
 ---
@@ -91,11 +91,27 @@ print('patch OK')
 
 ### 准备 dataset_statistics.json
 
-`dataset_statistics.json` 已预置于 `/workspace/data/`，直接复制即可，**无需重新计算**：
+使用 `compute_wp_norm_stats.py` 从原始 RLDS 数据计算并保存到可写目录（约 60s）：
 
 ```bash
 cd /workspace/openpi && mkdir -p data
-cp /workspace/data/dataset_statistics.json /workspace/openpi/data/dataset_statistics.json
+.venv/bin/python scripts/compute_wp_norm_stats.py \
+    --rlds_dir /workspace/data/object/libero_object_no_noops/libero_object_no_noops/1.0.0 \
+    --robot_type libero \
+    --output_dir /workspace/openpi/data
+# 完成标志: "Saved to /workspace/openpi/data/dataset_statistics.json"
+```
+
+> **说明**：脚本对 action gripper 维度应用 `normalize_gripper`（raw [-1,1] → {0,1}），proprio 只保留连续维度（dims 0-5），输出 flat JSON（无外层 dataset 名称 key）。
+
+验证：
+```bash
+.venv/bin/python -c "
+import json; d = json.load(open('/workspace/openpi/data/dataset_statistics.json'))
+print('action dims:', len(d['action']['q99']))   # 7
+print('proprio dims:', len(d['proprio']['q99']))  # 6 (连续维度，不含 gripper)
+print('steps:', d['num_transitions'])
+"
 ```
 
 ---
@@ -196,7 +212,7 @@ tmux attach -t joint_train
 | 训练配置 | `/workspace/openpi/configs/waypoint_joint_libero.yaml` |
 | 训练日志 | `/workspace/openpi/logs/waypoint_joint_libero_object.log` |
 | Checkpoint | `/workspace/openpi/checkpoints/waypoint_joint_libero_sg/` |
-| Dataset statistics | `/workspace/openpi/data/dataset_statistics.json`（从 `/workspace/data/` 复制） |
+| Dataset statistics | `/workspace/openpi/data/dataset_statistics.json`（由 `compute_wp_norm_stats.py` 从原始 RLDS 生成） |
 | Pi0.5 base 权重 | `/workspace/models/pi05_base_pytorch/model.safetensors` |
 | LIBERO RLDS | `/workspace/data/object/libero_object_no_noops/libero_object_no_noops/1.0.0/` |
 | Waypoint filtered RLDS | `/workspace/data/object/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |

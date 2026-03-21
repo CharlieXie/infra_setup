@@ -71,61 +71,32 @@ print('patch OK')
 
 ## 4. 生成 dataset_statistics
 
-### 4.1 AE stats（从完整 RLDS，约 60s）
-
-> ⚠️ Google Drive 上的 stats 维度不匹配，必须从 RLDS 重算。
-
-```bash
-cd /workspace/openpi
-.venv/bin/python - << 'PYEOF' > /tmp/ae_stats.log 2>&1 &
-import os; os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import tensorflow as tf; tf.config.set_visible_devices([], 'GPU')
-import tensorflow_datasets as tfds
-import numpy as np, json
-
-b = tfds.builder_from_directory('/workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0')
-ds = b.as_dataset(split='train')
-all_actions, all_proprios = [], []
-for ep in ds:
-    for step in ep['steps']:
-        all_actions.append(step['action'].numpy().astype('float32'))
-        all_proprios.append(step['observation']['state'].numpy().astype('float32').flatten())
-all_actions = np.stack(all_actions); all_proprios = np.stack(all_proprios)
-print(f'Actions: {all_actions.shape}, Proprios: {all_proprios.shape}')  # (66984,7), (66984,8)
-def stats(arr):
-    return {'mean': arr.mean(0).tolist(), 'std': arr.std(0).tolist(),
-            'q01': np.percentile(arr,1,0).tolist(), 'q99': np.percentile(arr,99,0).tolist(),
-            'min': arr.min(0).tolist(), 'max': arr.max(0).tolist()}
-out = {'libero_object_no_noops': {'action': stats(all_actions), 'proprio': stats(all_proprios), 'num_samples': len(all_actions)}}
-path = '/workspace/data/dataset_statistics.json'
-with open(path, 'w') as f: json.dump(out, f, indent=2)
-print('Saved to', path)
-PYEOF
-echo "AE stats PID=$!"
-```
-
-监控：`sleep 30 && tail -5 /tmp/ae_stats.log`
-
-### 4.2 VLM stats（从 waypoint-filtered RLDS，约 30-40s）
-
-> **需要用户确认路径**：
-> - `--rlds_dir`：waypoint-filtered RLDS 的 `1.0.0` 目录路径
-> - `--output_dir`：stats 输出目录
+> ⚠️ Google Drive 上的 stats 维度不匹配，必须从 RLDS 重算。AE 和 VLM 使用同一份 stats 文件。
 
 ```bash
 cd /workspace/openpi
 .venv/bin/python scripts/compute_wp_norm_stats.py \
-    --rlds_dir /workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0 \
+    --rlds_dir /workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0 \
     --robot_type libero \
-    --output_dir /workspace/data/libero/libero_object_wp_001/norm_stats
+    --output_dir /workspace/data \
+    > /tmp/compute_stats.log 2>&1 &
+echo "stats PID=$!"
 ```
 
-验证（完成后）：
+监控（约 60s）：
+```bash
+while ! grep -q "Saved to" /tmp/compute_stats.log 2>/dev/null; do
+    sleep 10 && tail -2 /tmp/compute_stats.log
+done
+# 完成标志: "Saved to /workspace/data/dataset_statistics.json"
+```
+
+验证：
 ```bash
 .venv/bin/python -c "
-import json; d = json.load(open('/workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json'))
+import json; d = json.load(open('/workspace/data/dataset_statistics.json'))
 print('action:', len(d['action']['q99']), 'proprio:', len(d['proprio']['q99']), 'steps:', d['num_transitions'])
-# 期望: 7  8  8863
+# 期望: action=7  proprio=6  steps=66984
 "
 ```
 
@@ -151,8 +122,7 @@ chmod 600 ~/.netrc
 ```bash
 ls /workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0/dataset_info.json && echo "✓ RLDS"
 ls /workspace/data/libero/libero_object_wp_001/waypoint_indices.json && echo "✓ wp_indices"
-ls /workspace/data/dataset_statistics.json && echo "✓ AE stats"
-ls /workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json && echo "✓ VLM stats"
+ls /workspace/data/dataset_statistics.json && echo "✓ stats"
 ls /workspace/models/pi05_base_pytorch/model.safetensors && echo "✓ model"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 ```
@@ -233,8 +203,7 @@ tmux attach -t waypoint_vlm
 | LIBERO RLDS | `/workspace/data/libero/libero_object_no_noops/libero_object_no_noops/1.0.0/` |
 | Waypoint indices | `/workspace/data/libero/libero_object_wp_001/waypoint_indices.json` |
 | Waypoint filtered RLDS | `/workspace/data/libero/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |
-| AE dataset statistics | `/workspace/data/dataset_statistics.json` |
-| VLM dataset statistics | `/workspace/data/libero/libero_object_wp_001/norm_stats/dataset_statistics.json` |
+| Dataset statistics | `/workspace/data/dataset_statistics.json` |
 | AE 训练日志 | `/workspace/openpi/logs/waypoint_ae_libero.log` |
 | VLM 训练日志 | `/workspace/openpi/logs/waypoint_vlm_libero.log` |
 | Google Drive | `gg1:dissert_ntu/libero/` |
