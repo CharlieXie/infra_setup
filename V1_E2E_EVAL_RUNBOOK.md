@@ -1,4 +1,4 @@
-# OpenPI v1_e2e Joint Model — LIBERO 评测 Runbook
+# OpenPI v1.2_e2e Joint Model — LIBERO 评测 Runbook
 
 > **目标读者**: AI Agent。适用场景：已有训练好的 Joint（VLM+AE 共享 backbone）checkpoint，在新机器上从零搭建评测环境。
 >
@@ -24,7 +24,7 @@
 □ touch ~/.no_auto_tmux
 □ sudo apt-get install -y ffmpeg pkg-config build-essential libosmesa6-dev libgles2 libegl1
 □ git config global user
-□ cd /workspace && git clone openpi（v1_e2e 分支）
+□ cd /workspace && git clone openpi（v1.2_e2e 分支）
 □ GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive
 □ uv sync（后台）→ 循环轮询 → 完成标志: "Installed N packages"
 □ 安装 TF 2.15.0 + tensorflow-datasets 4.9.3（循环轮询）
@@ -59,17 +59,17 @@ sudo apt-get install -y ffmpeg pkg-config build-essential \
 cd /workspace
 GIT_LFS_SKIP_SMUDGE=1 git clone https://<PAT>@github.com/CharlieXie/openpi.git
 cd openpi
-git fetch origin v1_e2e
-git checkout v1_e2e
+git fetch origin v1.2_e2e
+git checkout v1.2_e2e
 GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive
 ```
 
 验证：
 ```bash
-cd /workspace/openpi && git branch  # * v1_e2e
+cd /workspace/openpi && git branch  # * v1.2_e2e
 ```
 
-> **注意**：v1_e2e 分支是 Joint VLM+AE 共享 backbone 版本，与 pytorch_lora_blackwell（分离 VLM+AE）不同，使用单一 checkpoint。
+> **注意**：v1.2_e2e 分支是 Joint VLM+AE 共享 backbone 版本，与 pytorch_lora_blackwell（分离 VLM+AE）不同，使用单一 checkpoint。
 
 ---
 
@@ -216,7 +216,7 @@ print(f'LIBERO Object: {bm.n_tasks} tasks')  # 10 tasks
 
 ## 6. 评测配置
 
-使用 `configs/eval_waypoint_joint_libero.yaml`（v1_e2e 分支专用，joint model 配置）：
+使用 `configs/eval_waypoint_joint_libero.yaml`（v1.2_e2e 分支专用，joint model 配置）：
 
 ```yaml
 robot_type: libero
@@ -328,9 +328,9 @@ ls data/libero/videos_wp_joint_object/
 
 ## 与旧版 Runbook 的差异（vs OPENPI_EVAL_RUNBOOK.md）
 
-| 项目 | 旧版（pytorch_lora_blackwell） | 新版（v1_e2e） |
+| 项目 | 旧版（pytorch_lora_blackwell） | 新版（v1.2_e2e） |
 |------|-------------------------------|----------------|
-| 分支 | `pytorch_lora_blackwell` | `v1_e2e` |
+| 分支 | `pytorch_lora_blackwell` | `v1.2_e2e` |
 | 模型结构 | 独立 VLM + 独立 AE（两个 checkpoint） | Joint 共享 backbone（单一 checkpoint） |
 | 配置文件 | `eval_waypoint_libero.yaml` | `eval_waypoint_joint_libero.yaml` |
 | Checkpoint 路径参数 | `vlm_checkpoint` + `ae_checkpoint` | `joint_checkpoint` |

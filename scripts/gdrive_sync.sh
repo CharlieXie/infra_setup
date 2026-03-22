@@ -104,7 +104,18 @@ EOF
     if rclone lsd "${REMOTE_NAME}:" --max-depth 1 &>/dev/null; then
         echo -e "${GREEN}>>> 连接成功！Google Drive 远程 '${REMOTE_NAME}' 已配置完毕${NC}"
     else
-        echo -e "${RED}>>> 连接失败，token 可能不正确，请重试${NC}"
+        echo -e "${RED}>>> 连接失败，token 可能不正确，正在清除无效配置...${NC}"
+        python3 - "$RCLONE_CONF" "$REMOTE_NAME" <<'PYEOF'
+import sys, configparser
+conf_file, section = sys.argv[1], sys.argv[2]
+config = configparser.RawConfigParser()
+config.read(conf_file)
+if config.has_section(section):
+    config.remove_section(section)
+with open(conf_file, 'w') as f:
+    config.write(f)
+PYEOF
+        echo -e "${RED}>>> 已清除无效配置，请重新运行脚本并粘贴正确的 JSON token${NC}"
         exit 1
     fi
 }
