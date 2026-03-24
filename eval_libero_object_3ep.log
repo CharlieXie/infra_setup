@@ -1,0 +1,457 @@
+2026-03-24 09:53:36.485598: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-03-24 09:53:36.485666: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-03-24 09:53:36.486636: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-03-24 09:53:36.492540: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-03-24 09:53:37.304149: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+[robosuite WARNING] No private macro file found! (macros.py:53)
+[robosuite WARNING] It is recommended to use a private macro file (macros.py:54)
+[robosuite WARNING] To setup, run: python /venv/vla-adapter/lib/python3.10/site-packages/robosuite/scripts/setup_macros.py (macros.py:55)
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Using LIBERO constants:
+  NUM_ACTIONS_CHUNK = 8
+  ACTION_DIM = 7
+  PROPRIO_DIM = 8
+  ACTION_PROPRIO_NORMALIZATION_TYPE = bounds_q99
+If needed, manually set the correct constants in `prismatic/vla/constants.py`!
+2026-03-24 09:53:40.534061: I external/local_xla/xla/stream_executor/cuda/cuda_executor.cc:901] successful NUMA node read from SysFS had negative value (-1), but there must be at least one NUMA node, so returning NUMA node zero. See more at https://github.com/torvalds/linux/blob/v6.0/Documentation/ABI/testing/sysfs-bus-pci#L344-L355
+2026-03-24 09:53:40.537108: I external/local_xla/xla/stream_executor/cuda/cuda_executor.cc:901] successful NUMA node read from SysFS had negative value (-1), but there must be at least one NUMA node, so returning NUMA node zero. See more at https://github.com/torvalds/linux/blob/v6.0/Documentation/ABI/testing/sysfs-bus-pci#L344-L355
+2026-03-24 09:53:40.538383: I external/local_xla/xla/stream_executor/cuda/cuda_executor.cc:901] successful NUMA node read from SysFS had negative value (-1), but there must be at least one NUMA node, so returning NUMA node zero. See more at https://github.com/torvalds/linux/blob/v6.0/Documentation/ABI/testing/sysfs-bus-pci#L344-L355
+Instantiating pretrained VLA policy...
+Created backup of original config at: /workspace/VLA-Adapter/outputs/LIBERO-Object-Pro/config.json.back.20260324_095351
+Updated config.json at: /workspace/VLA-Adapter/outputs/LIBERO-Object-Pro/config.json
+Changes made:
+  - Set AutoConfig to "configuration_prismatic.OpenVLAConfig"
+  - Set AutoModelForVision2Seq to "modeling_prismatic.OpenVLAForActionPrediction"
+
+------------------------------------------------------------------------------------------------
+Found mismatch between:
+Current:   ./prismatic/extern/hf/modeling_prismatic.py
+Checkpoint: outputs/LIBERO-Object-Pro/modeling_prismatic.py
+
+Created backup of original checkpoint file at: /workspace/VLA-Adapter/outputs/LIBERO-Object-Pro/modeling_prismatic.py.back.20260324_095351
+Copied current version to checkpoint at: /workspace/VLA-Adapter/outputs/LIBERO-Object-Pro/modeling_prismatic.py
+Changes complete. The checkpoint will now use the current version of modeling_prismatic.py
+------------------------------------------------------------------------------------------------
+
+Loaded model: <class 'prismatic.extern.hf.modeling_prismatic.OpenVLAForActionPrediction'>
+03/24 [09:54:03] INFO     | >> Logging to local log file: run_libero_eval.py:206
+                          ./experiments/logs/EVAL-libero_                       
+                          object-openvla-2026_03_24-09_53                       
+                          _51.txt                                               
+[info] using task orders [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+                 INFO     | >> Task suite: libero_object  run_libero_eval.py:222
+  0%|          | 0/10 [00:00<?, ?it/s][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:54:04] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the alphabet soup                       
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=1--success=True--task=pick_up_the_alphabet_soup_and_place_it_in_the_bask.mp4
+03/24 [09:54:11] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 1                                                
+                 INFO     | >> # successes: 1 (100.0%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:06<00:13,  6.55s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the alphabet soup                       
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=2--success=True--task=pick_up_the_alphabet_soup_and_place_it_in_the_bask.mp4
+03/24 [09:54:17] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 2                                                
+                 INFO     | >> # successes: 2 (100.0%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:13<00:06,  6.58s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the alphabet soup                       
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=3--success=True--task=pick_up_the_alphabet_soup_and_place_it_in_the_bask.mp4
+03/24 [09:54:25] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 3                                                
+                 INFO     | >> # successes: 3 (100.0%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:20<00:00,  6.99s/it][A100%|██████████| 3/3 [00:20<00:00,  6.88s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 1.0                                             
+ 10%|█         | 1/10 [00:22<03:20, 22.28s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:54:26] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the cream cheese                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=4--success=True--task=pick_up_the_cream_cheese_and_place_it_in_the_baske.mp4
+03/24 [09:54:32] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 4                                                
+                 INFO     | >> # successes: 4 (100.0%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:06<00:12,  6.39s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the cream cheese                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=5--success=False--task=pick_up_the_cream_cheese_and_place_it_in_the_baske.mp4
+03/24 [09:54:45] INFO     | >> Success: False             run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 5                                                
+                 INFO     | >> # successes: 4 (80.0%)     run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:18<00:09,  9.96s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the cream cheese                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=6--success=True--task=pick_up_the_cream_cheese_and_place_it_in_the_baske.mp4
+03/24 [09:54:51] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 6                                                
+                 INFO     | >> # successes: 5 (83.3%)     run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:24<00:00,  8.16s/it][A100%|██████████| 3/3 [00:24<00:00,  8.29s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          0.6666666666666666                                    
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8333333333333334                              
+ 20%|██        | 2/10 [00:48<03:15, 24.46s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:54:52] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the salad                               
+                          dressing and place it in the                          
+                          basket                                                
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=7--success=True--task=pick_up_the_salad_dressing_and_place_it_in_the_bas.mp4
+03/24 [09:54:58] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 7                                                
+                 INFO     | >> # successes: 6 (85.7%)     run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:05<00:11,  5.96s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the salad                               
+                          dressing and place it in the                          
+                          basket                                                
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=8--success=True--task=pick_up_the_salad_dressing_and_place_it_in_the_bas.mp4
+03/24 [09:55:04] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 8                                                
+                 INFO     | >> # successes: 7 (87.5%)     run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:11<00:06,  6.01s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the salad                               
+                          dressing and place it in the                          
+                          basket                                                
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=9--success=True--task=pick_up_the_salad_dressing_and_place_it_in_the_bas.mp4
+03/24 [09:55:10] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 9                                                
+                 INFO     | >> # successes: 8 (88.9%)     run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:17<00:00,  5.90s/it][A100%|██████████| 3/3 [00:17<00:00,  5.93s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8888888888888888                              
+ 30%|███       | 3/10 [01:07<02:33, 21.97s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:55:11] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the bbq sauce and                       
+                          place it in the basket                                
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=10--success=False--task=pick_up_the_bbq_sauce_and_place_it_in_the_basket.mp4
+03/24 [09:55:23] INFO     | >> Success: False             run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 10                                               
+                 INFO     | >> # successes: 8 (80.0%)     run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:12<00:24, 12.08s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the bbq sauce and                       
+                          place it in the basket                                
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=11--success=True--task=pick_up_the_bbq_sauce_and_place_it_in_the_basket.mp4
+03/24 [09:55:29] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 11                                               
+                 INFO     | >> # successes: 9 (81.8%)     run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:18<00:08,  8.61s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the bbq sauce and                       
+                          place it in the basket                                
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=12--success=True--task=pick_up_the_bbq_sauce_and_place_it_in_the_basket.mp4
+03/24 [09:55:38] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 12                                               
+                 INFO     | >> # successes: 10 (83.3%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:26<00:00,  8.58s/it][A100%|██████████| 3/3 [00:26<00:00,  8.93s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          0.6666666666666666                                    
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8333333333333334                              
+ 40%|████      | 4/10 [01:35<02:25, 24.30s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:55:39] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the ketchup and                         
+                          place it in the basket                                
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=13--success=True--task=pick_up_the_ketchup_and_place_it_in_the_basket.mp4
+03/24 [09:55:45] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 13                                               
+                 INFO     | >> # successes: 11 (84.6%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:06<00:13,  6.51s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the ketchup and                         
+                          place it in the basket                                
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=14--success=True--task=pick_up_the_ketchup_and_place_it_in_the_basket.mp4
+03/24 [09:55:52] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 14                                               
+                 INFO     | >> # successes: 12 (85.7%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:13<00:06,  6.70s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the ketchup and                         
+                          place it in the basket                                
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=15--success=True--task=pick_up_the_ketchup_and_place_it_in_the_basket.mp4
+03/24 [09:55:59] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 15                                               
+                 INFO     | >> # successes: 13 (86.7%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:20<00:00,  6.76s/it][A100%|██████████| 3/3 [00:20<00:00,  6.72s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8666666666666667                              
+ 50%|█████     | 5/10 [01:56<01:56, 23.27s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+03/24 [09:56:00] INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the tomato sauce                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=16--success=True--task=pick_up_the_tomato_sauce_and_place_it_in_the_baske.mp4
+03/24 [09:56:10] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 16                                               
+                 INFO     | >> # successes: 14 (87.5%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:09<00:19,  9.62s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the tomato sauce                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=17--success=False--task=pick_up_the_tomato_sauce_and_place_it_in_the_baske.mp4
+03/24 [09:56:22] INFO     | >> Success: False             run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 17                                               
+                 INFO     | >> # successes: 14 (82.4%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:22<00:11, 11.33s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the tomato sauce                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=18--success=True--task=pick_up_the_tomato_sauce_and_place_it_in_the_baske.mp4
+03/24 [09:56:29] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 18                                               
+                 INFO     | >> # successes: 15 (83.3%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:28<00:00,  9.18s/it][A100%|██████████| 3/3 [00:28<00:00,  9.59s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          0.6666666666666666                                    
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8333333333333334                              
+ 60%|██████    | 6/10 [02:26<01:42, 25.58s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+03/24 [09:56:30] INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the butter and                          
+                          place it in the basket                                
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=19--success=True--task=pick_up_the_butter_and_place_it_in_the_basket.mp4
+03/24 [09:56:38] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 19                                               
+                 INFO     | >> # successes: 16 (84.2%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:07<00:15,  7.71s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the butter and                          
+                          place it in the basket                                
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=20--success=True--task=pick_up_the_butter_and_place_it_in_the_basket.mp4
+03/24 [09:56:46] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 20                                               
+                 INFO     | >> # successes: 17 (85.0%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:15<00:07,  7.61s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the butter and                          
+                          place it in the basket                                
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=21--success=True--task=pick_up_the_butter_and_place_it_in_the_basket.mp4
+03/24 [09:56:53] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 21                                               
+                 INFO     | >> # successes: 18 (85.7%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:22<00:00,  7.64s/it][A100%|██████████| 3/3 [00:22<00:00,  7.64s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8571428571428571                              
+ 70%|███████   | 7/10 [02:50<01:15, 25.06s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+03/24 [09:56:54] INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the milk and                            
+                          place it in the basket                                
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=22--success=True--task=pick_up_the_milk_and_place_it_in_the_basket.mp4
+03/24 [09:57:01] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 22                                               
+                 INFO     | >> # successes: 19 (86.4%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:06<00:13,  6.55s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the milk and                            
+                          place it in the basket                                
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=23--success=True--task=pick_up_the_milk_and_place_it_in_the_basket.mp4
+03/24 [09:57:07] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 23                                               
+                 INFO     | >> # successes: 20 (87.0%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:13<00:06,  6.50s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the milk and                            
+                          place it in the basket                                
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=24--success=True--task=pick_up_the_milk_and_place_it_in_the_basket.mp4
+03/24 [09:57:14] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 24                                               
+                 INFO     | >> # successes: 21 (87.5%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:19<00:00,  6.60s/it][A100%|██████████| 3/3 [00:19<00:00,  6.58s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.875                                           
+ 80%|████████  | 8/10 [03:11<00:47, 23.73s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:57:15] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the chocolate                           
+                          pudding and place it in the                           
+                          basket                                                
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=25--success=True--task=pick_up_the_chocolate_pudding_and_place_it_in_the_.mp4
+03/24 [09:57:23] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 25                                               
+                 INFO     | >> # successes: 22 (88.0%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:07<00:14,  7.41s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the chocolate                           
+                          pudding and place it in the                           
+                          basket                                                
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=26--success=True--task=pick_up_the_chocolate_pudding_and_place_it_in_the_.mp4
+03/24 [09:57:30] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 26                                               
+                 INFO     | >> # successes: 23 (88.5%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:14<00:07,  7.23s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the chocolate                           
+                          pudding and place it in the                           
+                          basket                                                
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=27--success=True--task=pick_up_the_chocolate_pudding_and_place_it_in_the_.mp4
+03/24 [09:57:37] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 27                                               
+                 INFO     | >> # successes: 24 (88.9%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:21<00:00,  7.19s/it][A100%|██████████| 3/3 [00:21<00:00,  7.22s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.8888888888888888                              
+ 90%|█████████ | 9/10 [03:34<00:23, 23.42s/it][Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+                 INFO     | >> Using default initial      run_libero_eval.py:222
+                          states                                                
+[Warning]: datasets path /workspace/openpi/third_party/libero/libero/libero/../datasets does not exist!
+
+  0%|          | 0/3 [00:00<?, ?it/s][A03/24 [09:57:38] INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the orange juice                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 1...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=28--success=True--task=pick_up_the_orange_juice_and_place_it_in_the_baske.mp4
+03/24 [09:57:44] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 28                                               
+                 INFO     | >> # successes: 25 (89.3%)    run_libero_eval.py:222
+
+ 33%|███▎      | 1/3 [00:05<00:11,  5.91s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the orange juice                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 2...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=29--success=True--task=pick_up_the_orange_juice_and_place_it_in_the_baske.mp4
+03/24 [09:57:50] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 29                                               
+                 INFO     | >> # successes: 26 (89.7%)    run_libero_eval.py:222
+
+ 67%|██████▋   | 2/3 [00:11<00:05,  5.95s/it][A                 INFO     | >>                            run_libero_eval.py:222
+                          Task: pick up the orange juice                        
+                          and place it in the basket                            
+                 INFO     | >> Starting episode 3...      run_libero_eval.py:222
+Saved rollout MP4 at path ./rollouts/vla-adapter/2026_03_24/2026_03_24-09_53_51--episode=30--success=True--task=pick_up_the_orange_juice_and_place_it_in_the_baske.mp4
+03/24 [09:57:56] INFO     | >> Success: True              run_libero_eval.py:222
+                 INFO     | >> # episodes completed so    run_libero_eval.py:222
+                          far: 30                                               
+                 INFO     | >> # successes: 27 (90.0%)    run_libero_eval.py:222
+
+100%|██████████| 3/3 [00:17<00:00,  5.93s/it][A100%|██████████| 3/3 [00:17<00:00,  5.93s/it]
+                 INFO     | >> Current task success rate: run_libero_eval.py:222
+                          1.0                                                   
+                 INFO     | >> Current total success      run_libero_eval.py:222
+                          rate: 0.9                                             
+100%|██████████| 10/10 [03:53<00:00, 22.05s/it]100%|██████████| 10/10 [03:53<00:00, 23.33s/it]
+                 INFO     | >> Final results:             run_libero_eval.py:222
+                 INFO     | >> Total episodes: 30         run_libero_eval.py:222
+                 INFO     | >> Total successes: 27        run_libero_eval.py:222
+                 INFO     | >> Overall success rate:      run_libero_eval.py:222
+                          0.9000 (90.0%)                                        
