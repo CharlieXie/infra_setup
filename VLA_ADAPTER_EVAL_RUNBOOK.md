@@ -1,450 +1,420 @@
 # VLA-Adapter Evaluation Runbook
 
-## 背景介绍
+> **目标读者**：AI coding agent。本文档用于在全新机器上从零配置 VLA-Adapter 环境并运行 LIBERO / CALVIN 评估。
 
-[VLA-Adapter](https://github.com/OpenHelix-Team/VLA-Adapter) 是一个基于 Qwen2.5-0.5B（0.5B tiny-scale）的 Vision-Language-Action 模型，通过 adapter bridge 范式微调，在 LIBERO 和 CALVIN 两个机器人操作 benchmark 上取得了 SOTA 性能。
+## 前置条件
 
-### 架构特点
-- **VLM 骨干**：`prism-qwen25-extra-dinosiglip-224px-0_5b`（Stanford-ILIAD 的 Prismatic-VLMs，LLM 骨干为 Qwen2.5-0.5B）
-- **视觉编码器**：DINOv2 + SigLIP 双路 224px
-- **动作头**：L1 Regression Action Head，输出 7-DOF 动作
-- **Proprio**：8 维本体感知投影器
-- **动作 Chunking**：每次推理输出 8 步动作（`NUM_ACTIONS_CHUNK=8`），Hi3 temporal aggregation（CALVIN 专用）
-- **Pro 版本**：论文中推荐使用，Policy 大小 207MB，性能更强
-
-### 评估 Benchmark 简介
-
-**LIBERO**：MuJoCo/Robosuite 仿真，4 个 Task Suite（Spatial/Object/Goal/Long），每 suite 10 个任务，默认每任务 50 个 episode。**不需要下载数据集**，任务定义内置于 Python 包中。
-
-**CALVIN ABC→D**：PyBullet 仿真，1000 个 5-subtask chain 序列评估。**需要下载 `task_ABC_D` validation 数据**（~27GB），因为环境配置（场景布局、初始状态）存储在数据集文件中，而不是内置于 Python 包。完整数据集 517GB，但评估只需要 `validation/` 子集。
+- Linux 系统，CUDA >= 12.1，GPU >= 20GB VRAM
+- `conda` 已安装且在 PATH 中（如不在，检查 `/opt/miniforge3/bin/conda` 或 `/opt/miniconda3/bin/conda`，将其加入 PATH）
+- 磁盘空间：LIBERO 约 25GB，CALVIN 额外 ~30GB（数据 27GB + 解压临时空间）
+- 工作目录：`/workspace`
 
 ---
 
-## 系统要求
+## 一键安装脚本
 
-- Python **3.10**（tensorflow 2.15 不支持 Python 3.12）
-- CUDA ≥ 12.1
-- GPU ≥ 20GB VRAM（推理时单张 LIBERO episode 约占用 ~8GB）
-- 磁盘：LIBERO 约 25GB（模型 + 包），CALVIN 还需额外 ~27GB（validation 数据）
-
----
-
-## 一、环境安装
-
-### 1. 系统依赖
+将以下脚本保存为 `/workspace/setup_vla_adapter.sh` 并执行。脚本是幂等的，重复运行会跳过已完成步骤。
 
 ```bash
-apt-get update && apt-get install -y \
+#!/bin/bash
+set -euo pipefail
+
+WORKDIR="/workspace"
+VENV="/venv/vla-adapter"
+CONDA_ENV="vla-adapter"
+PYTHON_VERSION="3.10.16"
+
+cd "$WORKDIR"
+
+########################################
+# 1. 系统依赖
+########################################
+echo ">>> [1/9] 安装系统依赖..."
+apt-get update -qq && apt-get install -y -qq \
     libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libglew-dev \
-    libosmesa6-dev xvfb ffmpeg
-```
+    libosmesa6-dev xvfb ffmpeg > /dev/null 2>&1
+echo "    OK"
 
-### 2. 创建 Conda 环境（Python 3.10）
+########################################
+# 2. Conda 环境（Python 3.10 是硬性要求，tensorflow 2.15 不支持 3.12）
+########################################
+echo ">>> [2/9] 创建 conda 环境 $CONDA_ENV (Python $PYTHON_VERSION)..."
+if conda env list | grep -q "$CONDA_ENV"; then
+    echo "    已存在，跳过"
+else
+    conda create -n "$CONDA_ENV" python="$PYTHON_VERSION" -y -q
+fi
 
-```bash
-conda create -n vla-adapter python=3.10.16 -y
-conda activate vla-adapter
-```
+# 获取 conda 环境中的 python/pip 路径
+CONDA_PREFIX=$(conda env list | grep "$CONDA_ENV" | awk '{print $NF}')
+PY="$CONDA_PREFIX/bin/python"
+PIP="$CONDA_PREFIX/bin/pip"
+echo "    Python: $($PY --version)"
 
-### 3. 安装 PyTorch（CUDA 12.1）
+########################################
+# 3. PyTorch（CUDA 12.1 wheels）
+########################################
+echo ">>> [3/9] 安装 PyTorch..."
+if $PY -c "import torch; assert 'cu121' in torch.__version__" 2>/dev/null; then
+    echo "    已安装，跳过"
+else
+    $PIP install -q torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 \
+        --index-url https://download.pytorch.org/whl/cu121
+fi
+echo "    OK: $($PY -c 'import torch; print(torch.__version__)')"
 
-```bash
-pip install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 \
-    --index-url https://download.pytorch.org/whl/cu121
-```
-
-### 4. 克隆并安装 VLA-Adapter
-
-```bash
-git clone https://github.com/OpenHelix-Team/VLA-Adapter.git
+########################################
+# 4. 克隆并安装 VLA-Adapter
+########################################
+echo ">>> [4/9] 安装 VLA-Adapter..."
+cd "$WORKDIR"
+[ -d VLA-Adapter ] || git clone -q https://github.com/OpenHelix-Team/VLA-Adapter.git
 cd VLA-Adapter
-pip install -e .
-```
+$PIP install -q -e .
+echo "    OK"
 
-### 5. 安装 LIBERO
-
-```bash
-# 克隆 LIBERO 到 VLA-Adapter 目录下
-cd /workspace/VLA-Adapter
-git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git
-
-# 用 setup.py develop 安装（重要：editable 安装有 MAPPING 空字典 bug，
-# 必须用 setup.py develop 或手动加 PYTHONPATH）
-cd LIBERO
-python setup.py develop
-
-# 安装 LIBERO 额外依赖
-pip install "robosuite==1.4.1" bddl easydict cloudpickle "gym==0.23.1" \
+########################################
+# 5. 安装 LIBERO
+# ⚠️ 必须用 setup.py develop，pip install -e 会导致 import libero 失败
+#    （生成空 MAPPING 的 finder，是 LIBERO 包自身的 bug）
+########################################
+echo ">>> [5/9] 安装 LIBERO..."
+cd "$WORKDIR/VLA-Adapter"
+[ -d LIBERO ] || git clone -q https://github.com/Lifelong-Robot-Learning/LIBERO.git
+cd LIBERO && $PY setup.py develop -q 2>/dev/null
+$PIP install -q "robosuite==1.4.1" bddl easydict cloudpickle "gym==0.23.1" \
     "imageio[ffmpeg]" imageio-ffmpeg mujoco
-```
+echo "    OK"
 
-> ⚠️ **已知问题**：`pip install -e .` 对 LIBERO 的 editable 安装会生成空 MAPPING 的 finder，导致 `import libero` 失败。必须用 `python setup.py develop` 或在运行时设置 `PYTHONPATH`。
+########################################
+# 6. 安装 CALVIN
+# 安装顺序很重要：先装包 → 装依赖 → 用 conda 装 pyhash → pin 版本
+########################################
+echo ">>> [6/9] 安装 CALVIN..."
+cd "$WORKDIR/VLA-Adapter"
+[ -d calvin ] || git clone -q --recurse-submodules https://github.com/mees/calvin.git
+$PIP install -q --no-deps -e calvin/calvin_env
+$PIP install -q --no-deps -e calvin/calvin_models
 
-如果用 pip install -e 安装，需在脚本中设置：
-```bash
-export PYTHONPATH="/path/to/VLA-Adapter/LIBERO:/path/to/VLA-Adapter:$PYTHONPATH"
-```
+# CALVIN Python 依赖
+# ⚠️ moviepy 必须 <2.0（v2 移除了 moviepy.editor API，CALVIN 脚本会 import 失败）
+$PIP install -q "moviepy<2.0" hydra-core omegaconf pytorch-lightning \
+    termcolor pybullet msgpack msgpack-numpy sentence-transformers plotly \
+    hydra-colorlog numpy-quaternion pandas
 
-### 6. 安装 CALVIN（仿真环境只，不需要下载数据集）
+# ⚠️ pyhash：pip install 在 Python 3.10+ 会报 "use_2to3 is invalid"，只能用 conda
+if ! $PY -c "import pyhash" 2>/dev/null; then
+    conda install -n "$CONDA_ENV" -c conda-forge pyhash -y -q 2>/dev/null
+fi
 
-```bash
-cd /workspace/VLA-Adapter
-git clone --recurse-submodules https://github.com/mees/calvin.git
+# ⚠️ sentence-transformers 会把 transformers 升级到 5.x，必须 pin 回来
+$PIP install -q "transformers==4.40.1" "tokenizers==0.19.1" "huggingface_hub<1.0"
+# ⚠️ opencv-python/mujoco 会把 numpy 升级到 2.x，tensorflow 2.15 要求 <2.0
+$PIP install -q "numpy<2.0.0,>=1.23.5"
 
-# 安装 calvin_env（仿真环境）
-pip install --no-deps -e calvin/calvin_env
+echo "    OK"
 
-# 安装 calvin_models（评估代码）— 不安装依赖避免版本冲突
-pip install --no-deps -e calvin/calvin_models
+########################################
+# 7. 验证关键依赖版本
+########################################
+echo ">>> [7/9] 验证依赖..."
+$PY -c "
+import torch, transformers, numpy, pyhash
+assert '2.2.0' in torch.__version__, f'torch version mismatch: {torch.__version__}'
+assert transformers.__version__ == '4.40.1', f'transformers version mismatch: {transformers.__version__}'
+assert numpy.__version__.startswith('1.'), f'numpy version mismatch: {numpy.__version__}'
+assert torch.cuda.is_available(), 'CUDA not available'
+print(f'    torch={torch.__version__}, transformers={transformers.__version__}, numpy={numpy.__version__}, CUDA=OK')
+"
 
-# 安装 CALVIN 必需的 Python 依赖
-pip install "moviepy<2.0" hydra-core omegaconf pytorch-lightning \
-    termcolor pybullet msgpack msgpack-numpy sentence-transformers plotly
+########################################
+# 8. 下载模型（HuggingFace）
+########################################
+echo ">>> [8/9] 下载模型..."
 
-# 修复被 sentence-transformers 升级的 transformers 版本
-pip install "transformers==4.40.1" "tokenizers==0.19.1" "huggingface_hub<1.0"
+# 可选加速：hf_transfer 多线程下载
+$PIP install -q hf_transfer 2>/dev/null || true
+export HF_HUB_ENABLE_HF_TRANSFER=1
 
-# 修复 numpy 版本（tensorflow 需要 <2.0）
-pip install "numpy<2.0.0,>=1.23.5"
-```
-
-> ⚠️ **moviepy 版本**：必须安装 `moviepy<2.0`（即 1.x），因为 CALVIN 脚本使用 `from moviepy.editor import ImageSequenceClip`，这是 v1 的 API，v2 已移除。
-
----
-
-## 二、下载模型
-
-所有模型通过 HuggingFace 下载，使用 Python 的 `huggingface_hub` 库。
-
-```python
+$PY -c "
 from huggingface_hub import snapshot_download
+import os
 
-# VLM 骨干（~7.5GB，含 tokenizer/config/model 权重）
-# 注意：这里的 checkpoints/ 子目录存放的是 VLM 预训练中间 checkpoint，
-# 评估不需要，下载后可直接删除以节省 7.4GB 空间
-snapshot_download(
-    'Stanford-ILIAD/prism-qwen25-extra-dinosiglip-224px-0_5b',
-    local_dir='pretrained_models/prism-qwen25-extra-dinosiglip-224px-0_5b'
+models = {
+    # VLM backbone (~7.5GB)
+    'Stanford-ILIAD/prism-qwen25-extra-dinosiglip-224px-0_5b': 'pretrained_models/prism-qwen25-extra-dinosiglip-224px-0_5b',
+    # LIBERO checkpoints (各 ~2.8GB)
+    'VLA-Adapter/LIBERO-Spatial-Pro': 'outputs/LIBERO-Spatial-Pro',
+    'VLA-Adapter/LIBERO-Object-Pro': 'outputs/LIBERO-Object-Pro',
+    'VLA-Adapter/LIBERO-Goal-Pro':   'outputs/LIBERO-Goal-Pro',
+    'VLA-Adapter/LIBERO-Long-Pro':   'outputs/LIBERO-Long-Pro',
+    # CALVIN checkpoint (~2.8GB)
+    'VLA-Adapter/CALVIN-ABC-Pro':    'outputs/CALVIN-ABC-Pro',
+}
+
+os.chdir('$WORKDIR/VLA-Adapter')
+for repo, local_dir in models.items():
+    if os.path.isdir(local_dir) and len(os.listdir(local_dir)) > 3:
+        print(f'    {repo.split(\"/\")[-1]}: 已存在，跳过')
+        continue
+    print(f'    下载 {repo.split(\"/\")[-1]}...')
+    snapshot_download(repo, local_dir=local_dir)
+print('    模型下载完成')
+"
+
+# 清理不需要的文件（节省 ~7.5GB）
+rm -rf "$WORKDIR/VLA-Adapter/pretrained_models/prism-qwen25-extra-dinosiglip-224px-0_5b/checkpoints/"
+rm -rf "$WORKDIR/VLA-Adapter/pretrained_models/prism-qwen25-extra-dinosiglip-224px-0_5b/wandb/"
+echo "    OK"
+
+########################################
+# 9. 下载 CALVIN 数据集 + hydra 配置
+########################################
+echo ">>> [9/9] 下载 CALVIN 数据集..."
+CALVIN_VAL_DIR="$WORKDIR/VLA-Adapter/calvin/dataset/task_ABC_D/validation"
+
+if [ -d "$CALVIN_VAL_DIR" ] && [ -f "$CALVIN_VAL_DIR/.hydra/merged_config.yaml" ]; then
+    echo "    已存在，跳过"
+else
+    cd "$WORKDIR/VLA-Adapter"
+
+    # 下载 validation zip (~27GB)
+    # ⚠️ 必须指定 repo_type='dataset'，否则报 401（默认按 model 仓库查找）
+    # ⚠️ 实际文件是 zip，不能用 snapshot_download + allow_patterns（会匹配 0 文件）
+    $PY -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(
+    'VyoJ/calvin-ABCD-D-subsets',
+    repo_type='dataset',
+    filename='validation/subset_validation_000.zip',
+    local_dir='calvin/dataset/task_ABC_D_download'
 )
+print('    zip 下载完成')
+"
 
-# LIBERO 4 个 Pro 版本 checkpoint（各约 2.8GB）
-for repo in [
-    'VLA-Adapter/LIBERO-Spatial-Pro',
-    'VLA-Adapter/LIBERO-Object-Pro',
-    'VLA-Adapter/LIBERO-Goal-Pro',
-    'VLA-Adapter/LIBERO-Long-Pro',
-]:
-    name = repo.split('/')[-1]
-    snapshot_download(repo, local_dir=f'outputs/{name}')
+    # 解压并整理目录
+    # ⚠️ zip 内部路径是 subset_validation_000/validation/，需要移到 task_ABC_D/validation/
+    mkdir -p calvin/dataset/task_ABC_D
+    unzip -q -o calvin/dataset/task_ABC_D_download/validation/subset_validation_000.zip \
+        -d calvin/dataset/task_ABC_D/
+    mv calvin/dataset/task_ABC_D/subset_validation_000/validation "$CALVIN_VAL_DIR"
+    rm -rf calvin/dataset/task_ABC_D/subset_validation_000 calvin/dataset/task_ABC_D_download
 
-# CALVIN Pro checkpoint（约 2.8GB）
-snapshot_download('VLA-Adapter/CALVIN-ABC-Pro', local_dir='outputs/CALVIN-ABC-Pro')
+    # ⚠️ 关键文件：.hydra/merged_config.yaml
+    # HuggingFace subset 不含此文件，但 CALVIN 环境初始化必须读取它
+    # (play_table_env.py:275 的 OmegaConf.load)
+    # 来源：https://github.com/OpenHelix-Team/VLA-Adapter/issues/25
+    mkdir -p "$CALVIN_VAL_DIR/.hydra"
+    wget -q -O "$CALVIN_VAL_DIR/.hydra/merged_config.yaml" \
+        "https://github.com/user-attachments/files/23740664/merged_config.yaml"
+fi
+echo "    OK"
+
+########################################
+# 10. Patch evaluate_calvin.py（支持 --num_sequences 参数）
+########################################
+echo ">>> Patch evaluate_calvin.py..."
+EVAL_SCRIPT="$WORKDIR/VLA-Adapter/vla-scripts/evaluate_calvin.py"
+
+# 添加 num_sequences 字段到 GenerateConfig
+if ! grep -q "num_sequences:" "$EVAL_SCRIPT"; then
+    sed -i '/initial_states_path.*DEFAULT/a\    num_sequences: int = 1000' "$EVAL_SCRIPT"
+fi
+
+# 将硬编码的 num_sequences=1000 改为 cfg.num_sequences
+sed -i 's/num_sequences=1000/num_sequences=cfg.num_sequences/' "$EVAL_SCRIPT"
+
+echo "    OK"
+echo ""
+echo "========================================="
+echo " 安装完成！可以开始评估。"
+echo "========================================="
 ```
 
-### 可立即清理的空间（不影响评估）
-
-| 路径 | 大小 | 说明 |
-|------|------|------|
-| `pretrained_models/.../checkpoints/` | **7.4 GB** | VLM backbone 预训练中间 checkpoint，评估完全不需要 |
-| `pretrained_models/.../wandb/` | 73 MB | 预训练 wandb 日志 |
-| `~/.cache/pip` | ~4 GB | pip 下载缓存 |
+执行方式：
 
 ```bash
-rm -rf pretrained_models/prism-qwen25-extra-dinosiglip-224px-0_5b/checkpoints/
-rm -rf pretrained_models/prism-qwen25-extra-dinosiglip-224px-0_5b/wandb/
-rm -rf ~/.cache/pip
-conda clean --all -y
+chmod +x /workspace/setup_vla_adapter.sh
+bash /workspace/setup_vla_adapter.sh 2>&1 | tee /workspace/setup.log
 ```
+
+验证安装成功的标志：脚本最后输出 `安装完成！可以开始评估。` 且无 `set -e` 导致的中途退出。
 
 ---
 
-## 三、LIBERO 评估
+## 运行评估
 
-### 每个 checkpoint 包含的文件
-
-```
-outputs/LIBERO-Spatial-Pro/
-├── model.safetensors          # 完整 VLM 权重（2.4GB）
-├── action_head--checkpoint.pt # 动作头权重
-├── config.json
-├── configuration_prismatic.py
-├── modeling_prismatic.py
-├── dataset_statistics.json    # 动作归一化统计
-├── tokenizer_config.json
-└── ...
-```
-
-评估时 `AutoModelForVision2Seq.from_pretrained(pretrained_checkpoint)` 加载 `outputs/LIBERO-Spatial-Pro/`，**不依赖** `pretrained_models/` 下的 checkpoint 文件。
-
-### 运行评估脚本
+### LIBERO 评估
 
 ```bash
+CONDA_PREFIX=$(conda env list | grep vla-adapter | awk '{print $NF}')
+PY="$CONDA_PREFIX/bin/python"
 cd /workspace/VLA-Adapter
+
 export MUJOCO_GL=egl
 export TOKENIZERS_PARALLELISM=false
 export PYTHONPATH="/workspace/VLA-Adapter/LIBERO:/workspace/VLA-Adapter:$PYTHONPATH"
+```
 
-CUDA_VISIBLE_DEVICES=0 python experiments/robot/libero/run_libero_eval.py \
+单个 suite 评估：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 $PY experiments/robot/libero/run_libero_eval.py \
     --use_proprio True \
     --num_images_in_input 2 \
     --use_film False \
     --pretrained_checkpoint outputs/LIBERO-Spatial-Pro \
     --task_suite_name libero_spatial \
     --use_pro_version True \
-    --num_trials_per_task 50     # 论文标准；改为 3 可快速验证
+    --num_trials_per_task 3
 ```
 
-`task_suite_name` 对应关系：
+checkpoint 与 task_suite_name 对应关系：
 
 | checkpoint | task_suite_name |
 |---|---|
-| LIBERO-Spatial-Pro | `libero_spatial` |
-| LIBERO-Object-Pro | `libero_object` |
-| LIBERO-Goal-Pro | `libero_goal` |
-| LIBERO-Long-Pro | `libero_10` |
+| `outputs/LIBERO-Spatial-Pro` | `libero_spatial` |
+| `outputs/LIBERO-Object-Pro` | `libero_object` |
+| `outputs/LIBERO-Goal-Pro` | `libero_goal` |
+| `outputs/LIBERO-Long-Pro` | `libero_10` |
 
-### 批量评估脚本（全部 4 个 suite）
-
-保存为 `run_libero_eval_all.sh`：
+批量评估全部 4 个 suite（`--num_trials_per_task 3` 快速验证，改 50 为论文标准）：
 
 ```bash
-#!/bin/bash
-PYTHON=/venv/vla-adapter/bin/python
 cd /workspace/VLA-Adapter
-
 export MUJOCO_GL=egl
 export TOKENIZERS_PARALLELISM=false
 export PYTHONPATH="/workspace/VLA-Adapter/LIBERO:/workspace/VLA-Adapter:$PYTHONPATH"
 
-mkdir -p eval_logs
+CONDA_PREFIX=$(conda env list | grep vla-adapter | awk '{print $NF}')
+PY="$CONDA_PREFIX/bin/python"
 
-declare -A SUITES
-SUITES[libero_spatial]="outputs/LIBERO-Spatial-Pro"
-SUITES[libero_object]="outputs/LIBERO-Object-Pro"
-SUITES[libero_goal]="outputs/LIBERO-Goal-Pro"
-SUITES[libero_10]="outputs/LIBERO-Long-Pro"
+for suite_ckpt in \
+    "libero_spatial:outputs/LIBERO-Spatial-Pro" \
+    "libero_object:outputs/LIBERO-Object-Pro" \
+    "libero_goal:outputs/LIBERO-Goal-Pro" \
+    "libero_10:outputs/LIBERO-Long-Pro"; do
 
-for suite in libero_spatial libero_object libero_goal libero_10; do
-    CUDA_VISIBLE_DEVICES=0 $PYTHON experiments/robot/libero/run_libero_eval.py \
+    suite="${suite_ckpt%%:*}"
+    ckpt="${suite_ckpt#*:}"
+    echo "=== Evaluating $suite ==="
+    CUDA_VISIBLE_DEVICES=0 $PY experiments/robot/libero/run_libero_eval.py \
         --use_proprio True \
         --num_images_in_input 2 \
         --use_film False \
-        --pretrained_checkpoint "${SUITES[$suite]}" \
+        --pretrained_checkpoint "$ckpt" \
         --task_suite_name "$suite" \
         --use_pro_version True \
-        --num_trials_per_task 3 \
-        2>&1 | tee "eval_logs/eval_${suite}_3ep.log"
+        --num_trials_per_task 3
 done
 ```
 
-在 tmux 中启动：
+耗时估算（RTX 4090，`--num_trials_per_task 3`）：
 
-```bash
-tmux new-session -d -s libero_eval \
-    "bash run_libero_eval_all.sh 2>&1 | tee eval_logs/libero_eval_full.log; exec bash"
-# 实时查看进度
-tail -f eval_logs/libero_eval_full.log
-```
-
-### 耗时估算（RTX 4090）
-
-| Suite | max_steps/episode | 3 ep/task | 50 ep/task（标准） |
-|---|---|---|---|
-| libero_spatial | 220 | ~3.5 min | ~58 min |
-| libero_object | 280 | ~3.5 min | ~60 min |
-| libero_goal | 300 | ~4 min | ~60 min |
-| libero_10 (Long) | 520 | ~5 min | ~80 min |
-
----
-
-## 四、CALVIN 评估
-
-> ⚠️ **CALVIN 评估目前尚未在本机验证完整跑通**，以下为根据代码分析和官方文档整理的配置步骤。
-
-### 为何 CALVIN 需要下载数据集
-
-LIBERO 的任务定义（BDDL 文件、初始状态）内置在 Python 包中，仿真器可直接启动。  
-CALVIN 的环境初始化需要读取 `dataset/task_ABC_D/validation/` 目录下的场景配置文件（物体位置、初始状态序列、语言标注），因此必须下载数据。
-
-### 数据集大小说明
-
-| 数据集 | 大小 | 用途 |
+| Suite | 3 ep/task | 50 ep/task |
 |---|---|---|
-| 完整 task_ABC_D | **517 GB** | 训练 + 评估 |
-| validation 子集 | **~27 GB** | **仅评估所需** |
-| debug 数据集 | **1.3 GB** | 流程验证（任务数量有限） |
+| libero_spatial | ~3.5 min | ~58 min |
+| libero_object | ~3.5 min | ~60 min |
+| libero_goal | ~4 min | ~60 min |
+| libero_10 | ~5 min | ~80 min |
+| **全部 4 suite** | **~16 min** | **~4.3 h** |
 
-**评估只需要 validation 子集，不需要下载完整数据集。** 推荐通过 HuggingFace 只下载 validation 部分：
-
-```python
-# 方式一：只下载 validation 子集（推荐，约 27GB）
-from huggingface_hub import snapshot_download
-snapshot_download(
-    'VyoJ/calvin-ABCD-D-subsets',
-    allow_patterns=['subset_validation_000/*'],
-    local_dir='calvin/dataset/task_ABC_D'
-)
-# 下载后 validation 文件夹应位于：
-# calvin/dataset/task_ABC_D/validation/
-
-# 方式二：下载 debug 数据集验证流程（1.3GB）
-cd calvin/dataset && bash download_data.sh debug
-# 注意：debug 数据集路径为 calvin_debug_dataset，需修改脚本中的 CALVIN_ROOT
-```
-
-### 修改评估脚本以支持自定义序列数
-
-`vla-scripts/evaluate_calvin.py` 中 `num_sequences` 默认硬编码为 1000，已修改为可通过命令行传参：
-
-```python
-# GenerateConfig 中添加
-num_sequences: int = 1000  # 评估序列数，默认 1000，可改为 10 快速测试
-```
-
-```python
-# main() 中已改为
-num_sequences=cfg.num_sequences,
-```
-
-### 运行 CALVIN 评估
+### CALVIN 评估
 
 ```bash
+CONDA_PREFIX=$(conda env list | grep vla-adapter | awk '{print $NF}')
+PY="$CONDA_PREFIX/bin/python"
 cd /workspace/VLA-Adapter
+
 export CALVIN_ROOT="calvin"
 export PYTHONPATH="/workspace/VLA-Adapter:$PYTHONPATH"
 
-# 标准评估（1000 sequences）
-CUDA_VISIBLE_DEVICES=0 python vla-scripts/evaluate_calvin.py \
-    --pretrained_checkpoint outputs/CALVIN-ABC-Pro \
-    --num_sequences 1000
-
-# 快速验证（10 sequences）
-CUDA_VISIBLE_DEVICES=0 python vla-scripts/evaluate_calvin.py \
+# 快速验证（10 sequences，约 3 分钟）
+CUDA_VISIBLE_DEVICES=0 $PY vla-scripts/evaluate_calvin.py \
     --pretrained_checkpoint outputs/CALVIN-ABC-Pro \
     --num_sequences 10
+
+# 标准评估（1000 sequences，约 4.5 小时）
+CUDA_VISIBLE_DEVICES=0 $PY vla-scripts/evaluate_calvin.py \
+    --pretrained_checkpoint outputs/CALVIN-ABC-Pro \
+    --num_sequences 1000
 ```
 
-### 耗时估算（H100）
+实时查看进度（评估过程中 stdout 可能被缓冲）：
 
-- 1000 sequences：**约 4 小时 10 分钟**（~15s/sequence）
-- 10 sequences：**约 2.5 分钟**
-
-RTX 4090 上预计会慢约 2-3x。
-
-### CALVIN 数据集目录结构要求
-
+```bash
+# 查看最新结果文件
+ls -t evaluation_results/calvin/*/success_rate.txt | head -1 | xargs tail -f
 ```
-VLA-Adapter/
-└── calvin/
-    └── dataset/
-        └── task_ABC_D/
-            └── validation/
-                ├── lang_annotations/
-                │   ├── auto_lang_ann.npy
-                │   └── embeddings.npy      # rollout 推理时使用
-                ├── scene_info.npy
-                └── episode_XXXXXXX.npz     # 场景状态文件
-```
+
+耗时估算：
+
+| 环境 | 10 sequences | 1000 sequences |
+|---|---|---|
+| RTX 4090（实测） | ~2 min 50s (~17s/seq) | ~4h 40min |
+| H100（官方） | ~2 min 30s (~15s/seq) | ~4h 10min |
 
 ---
 
-## 五、我们的评估结果（2026-03-24，RTX 4090）
+## 预期结果
 
-### LIBERO 评估结果（Pro 版本，3 episodes/task）
+用于判断评估是否正常运行。小样本（3 ep / 10 seq）方差较大，低于下列范围说明环境可能有问题。
 
-| Suite | Episodes | Successes | **我们的成功率** | **论文 Pro（50 ep, H100）** |
-|---|---|---|---|---|
-| libero_spatial | 30 | 29 | **96.7%** | 99.6% |
-| libero_object | 30 | 27 | **90.0%** | 99.6% |
-| libero_goal | 30 | 28 | **93.3%** | 98.2% |
-| libero_10 (Long) | 30 | 26 | **86.7%** | 96.4% |
+### LIBERO（3 episodes/task，Pro 版本）
 
-**总耗时**：约 19 分钟（4 个 suite 串行，RTX 4090）
+| Suite | 预期成功率范围 | 论文标准（50 ep, H100） |
+|---|---|---|
+| libero_spatial | 85-100% | 99.6% |
+| libero_object | 80-100% | 99.6% |
+| libero_goal | 80-100% | 98.2% |
+| libero_10 | 70-100% | 96.4% |
 
-### 失败 episode 分析
+### CALVIN（10 sequences，Pro 版本）
 
-我们使用 3 episode/task，样本量少，方差大。对比官方 50 episode 日志（`eval_logs/Inference*Pro*.log`）分析：
-
-**LIBERO-Spatial（1 次失败）**
-- Task 2（ramekin 旁的 bowl）：我们 ep2 失败。官方 ep1-3 全部成功，失败发生在 ep8（50次中）。**任务本身略有难度（官方 98%），但非同一 episode 失败。**
-
-**LIBERO-Object（3 次失败）**
-- Task 2（cream cheese）、Task 4（BBQ sauce）、Task 6（tomato sauce）：我们各失败 1 次。官方这三个任务均为 **100%**，ep1-3 全部成功。**属于高方差失误，非模型弱项。**
-
-**LIBERO-Goal（2 次失败）**
-- Task 4（open drawer + bowl）：我们 ep1 失败。官方成功率 96%（有难度），但官方 ep1-3 全部成功。
-- Task 9（put bowl on plate）：我们 ep3 失败。官方 **100%**，ep1-3 全部成功。**不一致，属于随机失误。**
-
-**LIBERO-Long（4 次失败，1 次有对应）**
-- Task 5（双 mug 摆放）：我们 T/T/F，官方也是 T/T/F（**ep3 完全对应！**）。官方 94%，任务有难度。✅
-- Task 9（both moka pots on stove）：我们 F/F/F，官方 90%，ep1-3 为 T/F/T。**任务确实是难点，但失败分布不同。**
-
-**结论**：
-- 3 ep 测试中大部分失败属于**小样本方差**，只有 LIBERO-Long Task 5 实现了与官方相同的 ep3 失败匹配
-- 结果成功率低于论文是正常的（样本量少 + GPU 不同），整体趋势一致
-
-### CALVIN 评估结果
-
-> ⚠️ **CALVIN 评估尚未在本环境跑通**（磁盘空间不足，无法下载 ~27GB validation 数据）。
-
-官方发布的 CALVIN-ABC-Pro 结果（H100，1000 sequences）：
-
-| 1/5 | 2/5 | 3/5 | 4/5 | 5/5 | **Avg. len** |
+| 1/5 | 2/5 | 3/5 | 4/5 | 5/5 | Avg. len |
 |---|---|---|---|---|---|
-| 98.5% | 95.0% | 90.5% | 85.3% | 80.0% | **4.50** |
+| 90-100% | 80-100% | 70-100% | 60-100% | 50-100% | >= 4.0 |
+
+论文标准（1000 seq, H100）：98.5% / 95.0% / 90.5% / 85.3% / 80.0% / Avg 4.50
 
 ---
 
-## 六、已知问题 & 注意事项
+## Troubleshooting
 
-1. **LIBERO editable install bug**：`pip install -e LIBERO` 生成空 MAPPING 的 finder，必须用 `python setup.py develop` 或设置 `PYTHONPATH`
+按错误信息查找修复方法。
 
-2. **moviepy 版本**：必须用 `moviepy<2.0`，v2 移除了 `moviepy.editor` API
-
-3. **numpy 版本冲突**：`tensorflow==2.15.0` 要求 `numpy<2.0`，但 `calvin_env` 和 `opencv-python` 会拉新版本，安装后需手动固定：
-   ```bash
-   pip install "numpy<2.0.0,>=1.23.5"
-   ```
-
-4. **sentence-transformers** 会拉高版本 `transformers`，装完需 pin 回：
-   ```bash
-   pip install "transformers==4.40.1" "tokenizers==0.19.1"
-   ```
-
-5. **GPU 差异**：官方在 H100 上测试，RTX 4090 结果可能略有差异（项目 README 也有此说明）
-
-6. **EGL 渲染**：LIBERO 需要 `MUJOCO_GL=egl`；CALVIN 使用 PyBullet EGL。两者都需要 `libgl1-mesa-dev` 等系统依赖
-
-7. **`pretrained_models/.../checkpoints/`**：下载 VLM backbone 时会带这 3 个约 2.5GB 的 `.pt` 文件（VLM 预训练中间 checkpoint），评估完全不需要，可立即删除节省 7.4GB
+| 错误信息 | 原因 | 修复 |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'pyhash'` | pip 安装失败（Python 3.10 不兼容） | `conda install -c conda-forge pyhash -y` |
+| `FileNotFoundError: .../validation/.hydra/merged_config.yaml` | HuggingFace subset 数据集不含此文件 | `mkdir -p calvin/dataset/task_ABC_D/validation/.hydra && wget -O calvin/dataset/task_ABC_D/validation/.hydra/merged_config.yaml "https://github.com/user-attachments/files/23740664/merged_config.yaml"` |
+| `RepositoryNotFoundError: 401 Client Error` (下载 CALVIN 数据集时) | 未指定 `repo_type='dataset'` | `hf_hub_download` 调用中添加 `repo_type='dataset'` |
+| `ModuleNotFoundError: No module named 'libero'` | LIBERO 的 editable install bug | 用 `python setup.py develop` 安装，或设置 `export PYTHONPATH="/workspace/VLA-Adapter/LIBERO:$PYTHONPATH"` |
+| `ImportError: cannot import name 'ImageSequenceClip' from 'moviepy.editor'` | moviepy v2 移除了此 API | `pip install "moviepy<2.0"` |
+| `numpy` 相关版本冲突 | tensorflow 2.15 要求 numpy<2.0 | `pip install "numpy<2.0.0,>=1.23.5"` |
+| `transformers` 版本不对 | sentence-transformers 拉高了版本 | `pip install "transformers==4.40.1" "tokenizers==0.19.1"` |
+| 下载 0 个文件（CALVIN 数据集） | 使用了 `snapshot_download` + `allow_patterns`（文件是 zip 不是目录） | 改用 `hf_hub_download` 下载 zip 后 `unzip` |
+| `EGL` 渲染相关报错 | 缺少 Mesa/EGL 系统依赖 | `apt-get install -y libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libosmesa6-dev` |
 
 ---
 
-## 七、目录结构总览
+## 目录结构
 
 ```
 /workspace/VLA-Adapter/
-├── LIBERO/                          # LIBERO benchmark（git clone）
-├── calvin/                          # CALVIN benchmark（git clone --recurse-submodules）
-│   └── dataset/task_ABC_D/         # CALVIN 数据集（需下载，仅需 validation/）
-├── outputs/                         # 评估用 checkpoint（从 HF 下载）
-│   ├── LIBERO-Spatial-Pro/
-│   ├── LIBERO-Object-Pro/
-│   ├── LIBERO-Goal-Pro/
-│   ├── LIBERO-Long-Pro/
+├── LIBERO/                              # git clone
+├── calvin/                              # git clone --recurse-submodules
+│   └── dataset/task_ABC_D/
+│       └── validation/                  # 从 HF 下载 zip 解压
+│           ├── .hydra/merged_config.yaml  # 必须单独下载
+│           ├── lang_annotations/
+│           └── episode_*.npz              # ~99000 个文件
+├── outputs/                             # HF 下载的 checkpoint
+│   ├── LIBERO-{Spatial,Object,Goal,Long}-Pro/
 │   └── CALVIN-ABC-Pro/
-├── pretrained_models/               # VLM backbone
-│   ├── configs/                     # tokenizer/config 文件
-│   └── prism-qwen25-extra-dinosiglip-224px-0_5b/
-│       ├── checkpoints/             # ⚠️ 可删除（7.4GB），评估不需要
-│       └── wandb/                   # ⚠️ 可删除（73MB），评估不需要
+├── pretrained_models/                   # VLM backbone
 ├── experiments/robot/libero/
-│   ├── run_libero_eval.py           # LIBERO 评估入口
-│   ├── libero_utils.py
-│   └── libero_requirements.txt
+│   └── run_libero_eval.py               # LIBERO 评估入口
 ├── vla-scripts/
-│   ├── evaluate_calvin.py           # CALVIN 评估入口（已修改 num_sequences 可配置）
-│   ├── calvin_env_wrapper.py
-│   └── vla_evaluation.py
-├── eval_logs/                       # 评估日志（含官方日志和我们的测试日志）
-└── run_libero_eval_all.sh           # 批量 LIBERO 评估脚本
+│   └── evaluate_calvin.py               # CALVIN 评估入口
+└── evaluation_results/calvin/           # CALVIN 输出（success_rate.txt, result.txt, *.mp4）
 ```
