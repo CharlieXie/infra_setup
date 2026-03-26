@@ -176,9 +176,18 @@ run_copy() {
     fi
 
     echo ""
+    # --drive-upload-cutoff: 小于此值的文件单次上传（不分 chunk），减少服务端拼接等待
+    # --tpslimit: 限制每秒 API 请求数，避免触发 Google Drive 限流导致速度骤降
+    # --checkers: 增加校验并发数，加快上传后 MD5 校验阶段
+    #
+    # 注意：文件到 100% 后仍会短暂停顿，这是 rclone 在等待 Google Drive
+    # 服务端完成 MD5 校验 + 病毒扫描 + 索引，属于正常行为
     rclone copy "$src" "$final_dst" --progress \
         --transfers="$TRANSFERS" \
-        --drive-chunk-size="$DRIVE_CHUNK_SIZE"
+        --drive-chunk-size="$DRIVE_CHUNK_SIZE" \
+        --drive-upload-cutoff="$DRIVE_CHUNK_SIZE" \
+        --tpslimit 10 \
+        --checkers 16
     echo ""
     echo -e "${GREEN}>>> 完成！${NC}"
     echo -e "    目标路径: ${BOLD}${final_dst}${NC}"
