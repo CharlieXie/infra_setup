@@ -146,9 +146,11 @@ print('transformers patch OK')
 
 ## 4. 生成 dataset_statistics.json
 
-**如果已有 `/workspace/data/dataset_statistics.json` 且格式正确（flat 格式，proprio=6 维），跳过本节。**
+**如果已有统计文件且格式正确（flat 格式，action=7 维，proprio=6 维），跳过本节。**
 
-使用 `compute_wp_norm_stats.py` 从原始 RLDS 数据计算（约 60s）：
+使用 `compute_wp_norm_stats.py` 从 RLDS 数据计算。脚本通过 `--robot_type` 自动适配不同机器人的 gripper 归一化和 proprio 维度。
+
+### LIBERO（约 60s）
 
 ```bash
 cd /workspace/openpi
@@ -159,8 +161,6 @@ cd /workspace/openpi
 # 完成标志: "Saved to /workspace/data/dataset_statistics.json"
 ```
 
-> **说明**：脚本会对 action gripper 维度应用 `normalize_gripper`（raw [-1,1] → {0,1}），proprio 只保留连续维度（dims 0-5，不含 gripper qpos），输出 flat JSON（无外层 dataset 名称 key）。
-
 验证：
 ```bash
 .venv/bin/python -c "
@@ -170,6 +170,29 @@ print('proprio dims:', len(d['proprio']['q99']))  # 6 (连续维度，不含 gri
 print('steps:', d['num_transitions'])             # 66984
 "
 ```
+
+### CALVIN ABC_D
+
+```bash
+cd /workspace/openpi
+.venv/bin/python scripts/compute_wp_norm_stats.py \
+    --rlds_dir /workspace/calvin_abc_wp_001/calvin_abc_wp/1.0.0 \
+    --robot_type calvin \
+    --output_dir /workspace/calvin_abc_wp_001/norm_stats
+# 完成标志: "Saved to /workspace/calvin_abc_wp_001/norm_stats/dataset_statistics.json"
+```
+
+验证：
+```bash
+.venv/bin/python -c "
+import json; d = json.load(open('/workspace/calvin_abc_wp_001/norm_stats/dataset_statistics.json'))
+print('action dims:', len(d['action']['q99']))   # 7 (delta_pos(3) + delta_euler(3) + gripper(1))
+print('proprio dims:', len(d['proprio']['q99']))  # 6 (TCP pos(3) + euler(3), 不含 gripper width)
+print('steps:', d['num_transitions'])
+"
+```
+
+> **说明**：脚本对 action gripper 维度应用 `normalize_gripper`（LIBERO: clip+invert; CALVIN: clip only），proprio 只保留连续维度（dims 0-5），输出 flat JSON（无外层 dataset 名称 key）。同一个脚本通过 `--robot_type` 参数自动适配不同机器人。
 
 ---
 
