@@ -160,7 +160,9 @@ chmod 600 ~/.netrc
 
 ## 训练配置（Joint VLM + AE）
 
-### 训练命令
+### LIBERO
+
+#### 训练命令
 
 ```bash
 cd /workspace/openpi
@@ -176,7 +178,7 @@ tmux send-keys -t joint_train "export WANDB_API_KEY=<your_wandb_api_key>" Enter;
 tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=2 scripts/train_waypoint_joint.py --config configs/waypoint_joint_libero.yaml 2>&1 | tee logs/waypoint_joint_libero_object.log" Enter
 ```
 
-### 关键配置文件：`configs/waypoint_joint_libero.yaml`
+#### 关键配置文件：`configs/waypoint_joint_libero.yaml`
 
 | 参数 | 值 |
 |------|----|
@@ -203,7 +205,7 @@ tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --npro
 | `checkpoint_dir` | `checkpoints/{exp_name}` |
 | `save_interval` | `800` |
 
-### 期望初始 loss
+#### 期望初始 loss
 
 | 指标 | 期望范围 |
 |------|---------|
@@ -212,11 +214,83 @@ tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --npro
 
 ---
 
+### CALVIN ABC_D
+
+#### 数据路径
+
+| 资源 | 路径 |
+|------|------|
+| CALVIN RLDS (full) | `/workspace/data/calvin_abc_rlds` |
+| Waypoint indices | `/workspace/data/calvin_abc_wp_0_02/waypoint_indices.json` |
+| Waypoint filtered RLDS | `/workspace/data/calvin_abc_wp_0_02/calvin_abc_wp/1.0.0` |
+| Dataset statistics | `/workspace/data/dataset_statistics.json`（预置，可直接使用） |
+| Pi0.5 base 权重 | `/workspace/models/600/model.safetensors` |
+
+> `dataset_statistics.json` 已预置于 `/workspace/data/`，验证如下：
+> action dim=7（delta_pos×3 + delta_euler×3 + gripper×1），proprio dim=6（TCP pos×3 + euler×3），num_transitions=171,250。
+
+#### 训练命令
+
+```bash
+cd /workspace/openpi
+mkdir -p logs
+
+# 启动 tmux session
+tmux kill-session -t joint_train 2>/dev/null; sleep 1
+tmux new-session -d -s joint_train -x 220 -y 50
+
+tmux send-keys -t joint_train "cd /workspace/openpi" Enter; sleep 2
+tmux send-keys -t joint_train "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" Enter; sleep 2
+tmux send-keys -t joint_train "export WANDB_API_KEY=<your_wandb_api_key>" Enter; sleep 2
+tmux send-keys -t joint_train ".venv/bin/torchrun --standalone --nnodes=1 --nproc_per_node=2 scripts/train_waypoint_joint.py --config configs/waypoint_joint_calvin.yaml 2>&1 | tee logs/waypoint_joint_calvin.log" Enter
+```
+
+#### 关键配置文件：`configs/waypoint_joint_calvin.yaml`
+
+| 参数 | 值 |
+|------|----|
+| `original_rlds_dir` | `/workspace/data/calvin_abc_rlds` |
+| `wp_indices_path` | `/workspace/data/calvin_abc_wp_0_02/waypoint_indices.json` |
+| `wp_rlds_dir` | `/workspace/data/calvin_abc_wp_0_02/calvin_abc_wp/1.0.0` |
+| `dataset_statistics_path` | `/workspace/data/dataset_statistics.json` |
+| `pretrained_weight_path` | `/workspace/models/600` |
+| `paligemma_variant` | `gemma_2b` |
+| `action_expert_variant` | `gemma_300m` |
+| `precision` | `bfloat16` |
+| `vlm_batch_size` | `192` (per GPU) |
+| `ae_batch_size` | `192` (per GPU) |
+| `num_train_steps` | `5000` |
+| `warmup_steps` | `100` |
+| `peak_lr` | `1.0e-4` |
+| `end_lr` | `1.0e-7` |
+| `gradient_strategy` | `scale_gradient` |
+| `gradient_scale` | `0.1` |
+| `ae_loss_weight` | `1.0` |
+| `lora_enabled` | `false` |
+| `train_vision_encoder` | `true` |
+| `wandb_project` | `waypoint_e2e` |
+| `exp_name` | `waypoint_joint_calvin_sg_0.1_t1` |
+| `checkpoint_dir` | `checkpoints/{exp_name}` |
+| `save_interval` | `200` |
+
+#### 期望初始 loss（实测 2026-03-27）
+
+| 指标 | 期望范围 | 实测值 |
+|------|---------|--------|
+| VLM loss (step=0) | 2–3 | 2.26 |
+| AE loss (step=0) | 0.1–0.2 | 0.15 |
+| GPU 显存占用 | ~27 GB / 95 GB | 27.4 GB |
+
+---
+
 ## 快速监控
 
 ```bash
-# 实时训练日志
+# 实时训练日志（LIBERO）
 tail -f /workspace/openpi/logs/waypoint_joint_libero_object.log | grep "\[Joint\]"
+
+# 实时训练日志（CALVIN）
+tail -f /workspace/openpi/logs/waypoint_joint_calvin.log | grep "\[Joint\]"
 
 # GPU 使用率
 watch -n 5 nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader
@@ -229,13 +303,28 @@ tmux attach -t joint_train
 
 ## 关键路径速查
 
+### LIBERO
+
 | 资源 | 路径 |
 |------|------|
 | 训练脚本 | `/workspace/openpi/scripts/train_waypoint_joint.py` |
 | 训练配置 | `/workspace/openpi/configs/waypoint_joint_libero.yaml` |
 | 训练日志 | `/workspace/openpi/logs/waypoint_joint_libero_object.log` |
 | Checkpoint | `/workspace/openpi/checkpoints/waypoint_joint_libero_sg/` |
-| Dataset statistics | `/workspace/openpi/data/dataset_statistics.json`（由 `compute_wp_norm_stats.py` 从原始 RLDS 生成） |
+| Dataset statistics | `/workspace/openpi/data/dataset_statistics.json` |
 | Pi0.5 base 权重 | `/workspace/models/pi05_base_pytorch/model.safetensors` |
 | LIBERO RLDS | `/workspace/data/object/libero_object_no_noops/libero_object_no_noops/1.0.0/` |
 | Waypoint filtered RLDS | `/workspace/data/object/libero_object_wp_001/waypoint_filtered_rlds__libero/1.0.0/` |
+
+### CALVIN ABC_D
+
+| 资源 | 路径 |
+|------|------|
+| 训练脚本 | `/workspace/openpi/scripts/train_waypoint_joint.py` |
+| 训练配置 | `/workspace/openpi/configs/waypoint_joint_calvin.yaml` |
+| 训练日志 | `/workspace/openpi/logs/waypoint_joint_calvin.log` |
+| Checkpoint | `/workspace/openpi/checkpoints/waypoint_joint_calvin_sg_0.1_t1/` |
+| Dataset statistics | `/workspace/data/dataset_statistics.json` |
+| Pi0.5 base 权重 | `/workspace/models/600/model.safetensors` |
+| CALVIN RLDS | `/workspace/data/calvin_abc_rlds/` |
+| Waypoint filtered RLDS | `/workspace/data/calvin_abc_wp_0_02/calvin_abc_wp/1.0.0/` |
